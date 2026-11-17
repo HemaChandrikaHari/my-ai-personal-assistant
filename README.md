@@ -1,19 +1,33 @@
 # My AI Personal Assistant
 
-A modular personal-assistant platform with a shared FastAPI backend, Next.js dashboard, ChatGPT-facing MCP interface, explicit per-integration approvals, and AWS deployment scaffolding.
+A modular assistant with a FastAPI API, Next.js dashboard, a restricted ChatGPT MCP bridge, per-user integration approvals, and an AWS infrastructure starter.
 
-## Core design
-- FastAPI backend is the single source of truth for identity, permissions, integrations, workflows, and memory.
-- Next.js dashboard and ChatGPT MCP server both use the same backend and authorization checks.
-- Integrations are discovered and proposed automatically, but each app and each read/write/send scope requires explicit user approval.
-- Existing WhatsApp connectivity is preserved through the Blueticks MCP endpoint configured as BLUETICKS_MCP_URL. Do not replace credentials or create a new WhatsApp connection.
-- Credentials belong in AWS Secrets Manager, never in source control.
+## Local development
+1. Install Docker Desktop with Docker Compose.
+2. Copy .env.example to .env.
+3. Set OPENAI_API_KEY only if you want model chat. Leave BLUETICKS_BEARER_TOKEN empty unless the Blueticks MCP endpoint explicitly requires a bearer token. Never commit .env.
+4. Run docker compose up --build.
+5. Open http://localhost:3000 and check http://localhost:8000/health.
 
-## Planned stack
-FastAPI, Python, LangGraph, MCP, Next.js, PostgreSQL/pgvector, Redis workers, Docker Compose, AWS ECS Fargate, RDS, ElastiCache, Secrets Manager, Terraform.
+Local Compose deliberately enables a development-only X-User-ID identity. Production requires an HS256 JWT containing sub and exp claims and a JWT_SECRET of at least 32 characters. Replace this bootstrap with a real OIDC identity provider before internet exposure. Set NEXT_PUBLIC_ENABLE_DEV_AUTH=false in production.
 
-## Security
-Deny by default. Read permission does not imply write or send permission. Treat incoming messages and documents as untrusted content. Require confirmation for irreversible actions.
+## Database migrations
+Development startup creates tables for convenience. For production, run Alembic migrations from the backend directory:
+- py -m alembic upgrade head
+- py -m alembic current
 
-## Status
-Initial project bootstrap. See docs/ for architecture, security, and AWS deployment guidance. Replace development authentication with OIDC/JWT and complete production hardening before deployment.
+## Blueticks
+The existing endpoint remains https://api.blueticks.co/mcp. Discovery is explicit and does not grant access. Tool invocation requires a separately approved read, write or send scope. Set BLUETICKS_READ_ONLY_TOOLS and BLUETICKS_SEND_TOOLS to exact tool names after inspecting capabilities. Unknown tools default to write permission. Credentials are read from runtime environment only; use AWS Secrets Manager in deployment. Existing Blueticks credentials are not stored in this repository or copied from ChatGPT's separate connection.
+
+## ChatGPT MCP
+The restricted bridge is in mcp-server/server.py. Run it with docker compose --profile mcp up --build mcp-server after supplying a short-lived, user-scoped ASSISTANT_BACKEND_TOKEN. The bridge exposes health, integration listing and assistant chat only. Do not share one backend token among multiple users.
+
+## AWS
+The Terraform directory is a starter for VPC, ECR, ECS cluster, encrypted RDS with AWS-managed credentials, Redis, IAM roles, CloudWatch and ALB. It is not a complete deployable environment: ECS task definitions/services, WAF, ACM, autoscaling, application secret injection and operational alarms still need implementation and review. Review monthly costs before provisioning.
+
+## Current limitations
+- Real OIDC, issuer/audience validation, token refresh/revocation and multi-user identity mapping are not yet implemented.
+- The Redis worker is a safe queue skeleton; concrete task handlers, retries with backoff and scheduler are not yet implemented.
+- Live Blueticks discovery/tool execution requires the runtime credentials and exact tool-scope allowlists configured by the owner.
+- AWS infrastructure has not been applied. Docker and Terraform CLIs were not available in the current development environment.
+- Configure TLS, WAF, rate limits, backups, restore tests, monitoring, secrets injection and security scans before production use.

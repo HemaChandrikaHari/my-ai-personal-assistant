@@ -1,4 +1,3 @@
-.gitignore
 .env
 .env.*
 !.env.example
@@ -6,9 +5,13 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .venv/
+venv/
 node_modules/
 .next/
 dist/
+*.db
+*.sqlite
+*.sqlite3
 .terraform/
 terraform.tfstate*
 *.pem
