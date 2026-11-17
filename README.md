@@ -22,8 +22,10 @@ The existing endpoint remains https://api.blueticks.co/mcp. Discovery is explici
 ## ChatGPT MCP
 The restricted bridge is in mcp-server/server.py. Run it with docker compose --profile mcp up --build mcp-server after supplying a short-lived, user-scoped ASSISTANT_BACKEND_TOKEN. The bridge exposes health, integration listing and assistant chat only. Do not share one backend token among multiple users.
 
-## AWS
-The Terraform directory is a starter for VPC, ECR, ECS cluster, encrypted RDS with AWS-managed credentials, Redis, IAM roles, CloudWatch and ALB. It is not a complete deployable environment: ECS task definitions/services, WAF, ACM, autoscaling, application secret injection and operational alarms still need implementation and review. Review monthly costs before provisioning.
+## AWS deployment (₹0/month target)
+The preferred deployment direction is a serverless design documented in `infrastructure/aws/serverless/README.md`: Cognito, Lambda + API Gateway, DynamoDB, SQS and CloudWatch, with Amplify conditional on account-plan eligibility and usage costs. The serverless CloudFormation/SAM template is a resource foundation only; it does not yet include a working Lambda integration or DynamoDB-backed application implementation. **Do not deploy it until current Free/Paid plan eligibility, regional pricing, quotas and the complete change set are reviewed. No AWS resources have been created.**
+
+The older ECS/RDS/Redis Terraform starter remains under `infrastructure/aws/terraform` for reference only. It includes continuously billable infrastructure such as NAT Gateway, RDS, ElastiCache and ALB and must not be applied for the ₹0/month plan. Its default region is set to `ap-south-2` (Hyderabad), but the configuration is not the selected target.
 
 ## Current limitations
 - Real OIDC, issuer/audience validation, token refresh/revocation and multi-user identity mapping are not yet implemented.

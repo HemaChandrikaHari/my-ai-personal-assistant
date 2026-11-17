@@ -1,3 +1,7 @@
+# Legacy AWS Terraform starter (not the zero-cost target)
+
+**Do not apply this configuration for the ₹0/month deployment plan.** It provisions or is designed to provision NAT Gateway, RDS, Redis and an Application Load Balancer, which can incur ongoing charges. The preferred target is documented in `../serverless/README.md`.
+
 # AWS Terraform starter
 
 This is a foundation, not a complete deployable environment. It provisions a VPC, private database/cache subnets, encrypted RDS PostgreSQL with AWS-managed master credentials, Redis, ECR repositories, ECS cluster, CloudWatch log groups, task roles, and an ALB.
