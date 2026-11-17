@@ -1,11 +1,12 @@
 from fastapi.testclient import TestClient
+from uuid import uuid4
 from app.main import app, READ_TOOLS, SEND_TOOLS
 
 def test_read_and_send_allowlists_are_separate():
     assert READ_TOOLS.isdisjoint(SEND_TOOLS)
 
 def test_approval_is_per_user_and_per_scope():
-    headers = {"X-User-ID": "pytest-user"}
+    headers = {"X-User-ID": "pytest-" + uuid4().hex}
     with TestClient(app) as client:
         created = client.post("/api/v1/approval-requests",
                               headers=headers,
@@ -23,8 +24,8 @@ def test_approval_is_per_user_and_per_scope():
 
 def test_user_cannot_decide_another_users_request():
     with TestClient(app) as client:
-        owner = {"X-User-ID": "approval-owner"}
-        stranger = {"X-User-ID": "different-user"}
+        owner = {"X-User-ID": "approval-owner-" + uuid4().hex}
+        stranger = {"X-User-ID": "different-user-" + uuid4().hex}
         created = client.post("/api/v1/approval-requests", headers=owner,
                               json={"integration_id": "blueticks_whatsapp", "scope": "send"})
         assert created.status_code == 200

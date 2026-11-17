@@ -1,14 +1,33 @@
 AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
 Description: >-
-  Preparation-only foundation for My AI Personal Assistant in ap-south-2.
-  This template is NOT a guarantee of zero cost. Review pricing and Free Plan
-  eligibility before creating a stack. No stack has been deployed.
+  Serverless foundation for My AI Personal Assistant in ap-south-2.
+  Preparation template only. Review account-plan eligibility and regional
+  pricing before creating a stack. No resources have been deployed.
 Parameters:
   ProjectName:
     Type: String
     Default: my-ai-assistant
     AllowedPattern: '^[a-z0-9-]{3,30}$'
-    Description: Lowercase resource prefix.
+  FrontendOrigin:
+    Type: String
+    Default: http://localhost:3000
+    Description: Exact HTTPS Amplify origin before production deployment.
+  HostedUiDomainPrefix:
+    Type: String
+    AllowedPattern: '^[a-z0-9-]{1,63}$'
+    Description: Globally unique Cognito Hosted UI domain prefix.
+  BlueticksSecretArn:
+    Type: String
+    Default: ''
+    Description: Existing Blueticks MCP bearer token secret ARN; never enter the token here.
+  AiProviderSecretArn:
+    Type: String
+    Default: ''
+    Description: Optional AI provider secret ARN. Leave empty to keep paid AI disabled.
+Conditions:
+  HasBlueticksSecret: !Not [!Equals [!Ref BlueticksSecretArn, '']]
+  HasAiSecret: !Not [!Equals [!Ref AiProviderSecretArn, '']]
 Resources:
   AssistantUserPool:
     Type: AWS::Cognito::UserPool
@@ -32,11 +51,6 @@ Resources:
           TemporaryPasswordValidityDays: 3
       UserPoolAddOns:
         AdvancedSecurityMode: OFF
-      Schema:
-        - Name: email
-          AttributeDataType: String
-          Required: true
-          Mutable: true
   AssistantUserPoolClient:
     Type: AWS::Cognito::UserPoolClient
     Properties:
@@ -44,9 +58,13 @@ Resources:
       UserPoolId: !Ref AssistantUserPool
       GenerateSecret: false
       PreventUserExistenceErrors: ENABLED
-      ExplicitAuthFlows:
-        - ALLOW_USER_SRP_AUTH
-        - ALLOW_REFRESH_TOKEN_AUTH
+      CallbackURLs: [!Ref FrontendOrigin]
+      LogoutURLs: [!Ref FrontendOrigin]
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows: [code]
+      AllowedOAuthScopes: [openid, email, profile]
+      SupportedIdentityProviders: [COGNITO]
+      ExplicitAuthFlows: [ALLOW_USER_SRP_AUTH, ALLOW_REFRESH_TOKEN_AUTH]
       AccessTokenValidity: 60
       IdTokenValidity: 60
       RefreshTokenValidity: 30
@@ -54,6 +72,11 @@ Resources:
         AccessToken: minutes
         IdToken: minutes
         RefreshToken: days
+  AssistantUserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Ref HostedUiDomainPrefix
+      UserPoolId: !Ref AssistantUserPool
   UsersTable:
     Type: AWS::DynamoDB::Table
     DeletionPolicy: Retain
@@ -61,15 +84,36 @@ Resources:
     Properties:
       TableName: !Sub '${ProjectName}-users'
       BillingMode: PROVISIONED
-      ProvisionedThroughput: {ReadCapacityUnits: 5, WriteCapacityUnits: 5}
+      ProvisionedThroughput: {ReadCapacityUnits: 1, WriteCapacityUnits: 1}
+      AttributeDefinitions: [{AttributeName: userId, AttributeType: S}]
+      KeySchema: [{AttributeName: userId, KeyType: HASH}]
+      SSESpecification: {SSEEnabled: true}
+  IntegrationsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub '${ProjectName}-integrations'
+      BillingMode: PROVISIONED
+      ProvisionedThroughput: {ReadCapacityUnits: 1, WriteCapacityUnits: 1}
+      AttributeDefinitions: [{AttributeName: integrationId, AttributeType: S}]
+      KeySchema: [{AttributeName: integrationId, KeyType: HASH}]
+      SSESpecification: {SSEEnabled: true}
+  ApprovalsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub '${ProjectName}-approvals'
+      BillingMode: PROVISIONED
+      ProvisionedThroughput: {ReadCapacityUnits: 1, WriteCapacityUnits: 1}
       AttributeDefinitions:
         - {AttributeName: userId, AttributeType: S}
+        - {AttributeName: requestId, AttributeType: S}
       KeySchema:
         - {AttributeName: userId, KeyType: HASH}
+        - {AttributeName: requestId, KeyType: RANGE}
       SSESpecification: {SSEEnabled: true}
-      PointInTimeRecoverySpecification: {PointInTimeRecoveryEnabled: false}
-      Tags:
-        - {Key: Project, Value: !Ref ProjectName}
   ChatHistoryTable:
     Type: AWS::DynamoDB::Table
     DeletionPolicy: Retain
@@ -77,7 +121,7 @@ Resources:
     Properties:
       TableName: !Sub '${ProjectName}-chat-history'
       BillingMode: PROVISIONED
-      ProvisionedThroughput: {ReadCapacityUnits: 5, WriteCapacityUnits: 5}
+      ProvisionedThroughput: {ReadCapacityUnits: 1, WriteCapacityUnits: 1}
       AttributeDefinitions:
         - {AttributeName: userId, AttributeType: S}
         - {AttributeName: createdAt, AttributeType: S}
@@ -85,9 +129,6 @@ Resources:
         - {AttributeName: userId, KeyType: HASH}
         - {AttributeName: createdAt, KeyType: RANGE}
       SSESpecification: {SSEEnabled: true}
-      PointInTimeRecoverySpecification: {PointInTimeRecoveryEnabled: false}
-      Tags:
-        - {Key: Project, Value: !Ref ProjectName}
   AuditLogsTable:
     Type: AWS::DynamoDB::Table
     DeletionPolicy: Retain
@@ -95,7 +136,7 @@ Resources:
     Properties:
       TableName: !Sub '${ProjectName}-audit-logs'
       BillingMode: PROVISIONED
-      ProvisionedThroughput: {ReadCapacityUnits: 5, WriteCapacityUnits: 5}
+      ProvisionedThroughput: {ReadCapacityUnits: 1, WriteCapacityUnits: 1}
       AttributeDefinitions:
         - {AttributeName: userId, AttributeType: S}
         - {AttributeName: eventId, AttributeType: S}
@@ -103,9 +144,6 @@ Resources:
         - {AttributeName: userId, KeyType: HASH}
         - {AttributeName: eventId, KeyType: RANGE}
       SSESpecification: {SSEEnabled: true}
-      PointInTimeRecoverySpecification: {PointInTimeRecoveryEnabled: false}
-      Tags:
-        - {Key: Project, Value: !Ref ProjectName}
   AppPermissionsTable:
     Type: AWS::DynamoDB::Table
     DeletionPolicy: Retain
@@ -113,7 +151,7 @@ Resources:
     Properties:
       TableName: !Sub '${ProjectName}-app-permissions'
       BillingMode: PROVISIONED
-      ProvisionedThroughput: {ReadCapacityUnits: 5, WriteCapacityUnits: 5}
+      ProvisionedThroughput: {ReadCapacityUnits: 1, WriteCapacityUnits: 1}
       AttributeDefinitions:
         - {AttributeName: userId, AttributeType: S}
         - {AttributeName: appId, AttributeType: S}
@@ -121,9 +159,6 @@ Resources:
         - {AttributeName: userId, KeyType: HASH}
         - {AttributeName: appId, KeyType: RANGE}
       SSESpecification: {SSEEnabled: true}
-      PointInTimeRecoverySpecification: {PointInTimeRecoveryEnabled: false}
-      Tags:
-        - {Key: Project, Value: !Ref ProjectName}
   AssistantTaskDeadLetterQueue:
     Type: AWS::SQS::Queue
     Properties:
@@ -134,7 +169,7 @@ Resources:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: !Sub '${ProjectName}-tasks'
-      VisibilityTimeout: 60
+      VisibilityTimeout: 180
       MessageRetentionPeriod: 345600
       SqsManagedSseEnabled: true
       RedrivePolicy:
@@ -144,30 +179,108 @@ Resources:
     Type: AWS::Serverless::HttpApi
     Properties:
       StageName: '$default'
+      CorsConfiguration:
+        AllowOrigins: [!Ref FrontendOrigin]
+        AllowHeaders: [authorization, content-type]
+        AllowMethods: [GET, POST, OPTIONS]
+        MaxAge: 300
       Auth:
+        DefaultAuthorizer: CognitoJwt
         Authorizers:
           CognitoJwt:
             IdentitySource: '$request.header.Authorization'
             JwtConfiguration:
               issuer: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${AssistantUserPool}'
-              audience:
-                - !Ref AssistantUserPoolClient
+              audience: [!Ref AssistantUserPoolClient]
+  AssistantApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-api'
+      Runtime: python3.12
+      Handler: app.serverless_app.handler
+      CodeUri: ../../../backend/
+      MemorySize: 512
+      Timeout: 28
+      Environment:
+        Variables:
+          COGNITO_USER_POOL_ID: !Ref AssistantUserPool
+          COGNITO_CLIENT_ID: !Ref AssistantUserPoolClient
+          USERS_TABLE: !Ref UsersTable
+          INTEGRATIONS_TABLE: !Ref IntegrationsTable
+          APPROVALS_TABLE: !Ref ApprovalsTable
+          PERMISSIONS_TABLE: !Ref AppPermissionsTable
+          AUDIT_TABLE: !Ref AuditLogsTable
+          CHAT_TABLE: !Ref ChatHistoryTable
+          TASK_QUEUE_URL: !Ref AssistantTaskQueue
+          BLUETICKS_SECRET_ARN: !If [HasBlueticksSecret, !Ref BlueticksSecretArn, '']
+          AI_PROVIDER_SECRET_ARN: !If [HasAiSecret, !Ref AiProviderSecretArn, '']
+          BLUETICKS_READ_ONLY_TOOLS: ''
+          BLUETICKS_SEND_TOOLS: ''
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:Query, dynamodb:Scan, dynamodb:TransactWriteItems]
+              Resource:
+                - !GetAtt UsersTable.Arn
+                - !GetAtt IntegrationsTable.Arn
+                - !GetAtt ApprovalsTable.Arn
+                - !GetAtt AppPermissionsTable.Arn
+                - !GetAtt AuditLogsTable.Arn
+                - !GetAtt ChatHistoryTable.Arn
+            - Effect: Allow
+              Action: [sqs:SendMessage]
+              Resource: !GetAtt AssistantTaskQueue.Arn
+            - !If
+              - HasBlueticksSecret
+              - {Effect: Allow, Action: [secretsmanager:GetSecretValue], Resource: !Ref BlueticksSecretArn}
+              - !Ref AWS::NoValue
+            - !If
+              - HasAiSecret
+              - {Effect: Allow, Action: [secretsmanager:GetSecretValue], Resource: !Ref AiProviderSecretArn}
+              - !Ref AWS::NoValue
+      Events:
+        Health:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref AssistantApi
+            Path: /health
+            Method: GET
+            Auth: {Authorizer: NONE}
+        Proxy:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref AssistantApi
+            Path: /{proxy+}
+            Method: ANY
+  AssistantWorkerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-worker'
+      Runtime: python3.12
+      Handler: app.serverless_worker.handler
+      CodeUri: ../../../backend/
+      MemorySize: 128
+      Timeout: 30
+      Events:
+        TaskQueue:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt AssistantTaskQueue.Arn
+            BatchSize: 5
+            FunctionResponseTypes: [ReportBatchItemFailures]
+      Policies:
+        - SQSPollerPolicy:
+            QueueName: !GetAtt AssistantTaskQueue.QueueName
 Outputs:
+  ApiUrl:
+    Value: !Sub 'https://${AssistantApi}.execute-api.${AWS::Region}.amazonaws.com'
   UserPoolId:
     Value: !Ref AssistantUserPool
   UserPoolClientId:
     Value: !Ref AssistantUserPoolClient
-  UsersTableName:
-    Value: !Ref UsersTable
-  ChatHistoryTableName:
-    Value: !Ref ChatHistoryTable
-  AuditLogsTableName:
-    Value: !Ref AuditLogsTable
-  AppPermissionsTableName:
-    Value: !Ref AppPermissionsTable
+  CognitoHostedUiDomain:
+    Value: !Sub 'https://${HostedUiDomainPrefix}.auth.${AWS::Region}.amazoncognito.com'
   TaskQueueUrl:
     Value: !Ref AssistantTaskQueue
   TaskDeadLetterQueueUrl:
     Value: !Ref AssistantTaskDeadLetterQueue
-  HttpApiId:
-    Value: !Ref AssistantApi

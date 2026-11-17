@@ -22,14 +22,16 @@ The existing endpoint remains https://api.blueticks.co/mcp. Discovery is explici
 ## ChatGPT MCP
 The restricted bridge is in mcp-server/server.py. Run it with docker compose --profile mcp up --build mcp-server after supplying a short-lived, user-scoped ASSISTANT_BACKEND_TOKEN. The bridge exposes health, integration listing and assistant chat only. Do not share one backend token among multiple users.
 
-## AWS deployment (₹0/month target)
-The preferred deployment direction is a serverless design documented in `infrastructure/aws/serverless/README.md`: Cognito, Lambda + API Gateway, DynamoDB, SQS and CloudWatch, with Amplify conditional on account-plan eligibility and usage costs. The serverless CloudFormation/SAM template is a resource foundation only; it does not yet include a working Lambda integration or DynamoDB-backed application implementation. **Do not deploy it until current Free/Paid plan eligibility, regional pricing, quotas and the complete change set are reviewed. No AWS resources have been created.**
+## AWS deployment (INR 0/month target)
+The serverless migration is being prepared on branch `feat/serverless-aws`. It includes Cognito Hosted UI with PKCE, Lambda + API Gateway, DynamoDB, SQS and an API/worker implementation. See `infrastructure/aws/serverless/README.md` for the current design and explicit blockers. **No AWS resources have been created. Do not deploy until AWS SAM validation/build, security review, account-plan eligibility and regional pricing have all been checked.** A Free Tier allowance is not a guarantee of zero charges.
 
-The older ECS/RDS/Redis Terraform starter remains under `infrastructure/aws/terraform` for reference only. It includes continuously billable infrastructure such as NAT Gateway, RDS, ElastiCache and ALB and must not be applied for the ₹0/month plan. Its default region is set to `ap-south-2` (Hyderabad), but the configuration is not the selected target.
+The older ECS/RDS/Redis Terraform starter remains under `infrastructure/aws/terraform` for reference only. It includes potentially continuously billable NAT Gateway, RDS, ElastiCache and ALB resources and must not be applied for the INR 0/month plan. The serverless template targets `ap-south-2` (Hyderabad).
 
 ## Current limitations
-- Real OIDC, issuer/audience validation, token refresh/revocation and multi-user identity mapping are not yet implemented.
-- The Redis worker is a safe queue skeleton; concrete task handlers, retries with backoff and scheduler are not yet implemented.
-- Live Blueticks discovery/tool execution requires the runtime credentials and exact tool-scope allowlists configured by the owner.
-- AWS infrastructure has not been applied. Docker and Terraform CLIs were not available in the current development environment.
-- Configure TLS, WAF, rate limits, backups, restore tests, monitoring, secrets injection and security scans before production use.
+- SAM CLI/CloudFormation validation and a Lambda packaging build have not been run.
+- The SQS worker validates supported message types but intentionally performs no external task actions yet.
+- Cognito Hosted UI and token refresh require live integration testing with a provisioned test pool and matching callback/logout URLs.
+- Blueticks requires a separately configured AWS Secrets Manager runtime secret; ChatGPT connector credentials do not transfer to AWS. Exact tool-scope allowlists must be reviewed.
+- AI provider invocation is disabled by default. Configuring a provider secret can incur third-party charges.
+- Amplify hosting is not configured; account-plan eligibility and hosting/build/bandwidth costs must be reviewed.
+- Configure throttling, payload limits, log retention, alarms, backup/restore and security scans before production use.

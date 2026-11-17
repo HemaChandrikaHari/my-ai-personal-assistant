@@ -1,53 +1,63 @@
 # Serverless AWS migration — preparation only
 
-Target region: **Asia Pacific (Hyderabad), `ap-south-2`**.
+Target region: **Asia Pacific (Hyderabad), ap-south-2**.
 
-## Non-negotiable budget constraint
+## Budget and deployment guardrails
 
-The owner's AWS deployment budget is **₹0/month**. This directory is an infrastructure design and validation starting point only. **Do not deploy this template or run `sam deploy`, `aws cloudformation deploy`, or `terraform apply` without a fresh explicit approval after checking the account's current Free/Paid plan and each resource's regional pricing.** Even services described as having a free tier can become billable when allowances expire or are exceeded. Free-tier eligibility, service availability and quotas vary by account, region and date.
+The required AWS spend limit is **INR 0/month**. This branch contains code and infrastructure definitions only. **No AWS resources have been created.** Do not run `sam deploy`, `aws cloudformation deploy`, `aws cloudformation create-stack`, or `terraform apply` without a new, explicit approval after reviewing the account plan, service eligibility, regional pricing and the full change set.
 
-No AWS resources have been created by preparing these files.
+Free allowances are not a promise of zero cost. Cognito domains, API Gateway, DynamoDB provisioned throughput, Lambda, SQS, CloudWatch logs, data transfer, Amplify builds/hosting and Secrets Manager can have charges depending on account plan, usage and current offer. A budget is an alert, not a hard spending cap. The safest way to preserve INR 0 is not to create AWS resources.
 
-## Proposed mapping
+## Architecture
 
-| Existing capability | Serverless target |
+| Capability | Target |
 |---|---|
-| Next.js dashboard | Amplify Hosting (only after verifying current account-plan eligibility and build/storage/bandwidth charges) |
-| FastAPI | Lambda + Mangum + API Gateway HTTP API |
-| Authentication | Cognito User Pool; API Gateway JWT authorizer |
-| PostgreSQL | DynamoDB (requires an application data-access rewrite; this is not a drop-in replacement) |
-| Redis queue | SQS Standard queue + dead-letter queue |
-| Audit history | DynamoDB AuditLogs; CloudWatch for operational logs |
-| Per-app grants | DynamoDB AppPermissions with distinct read/write/send permissions |
-| WhatsApp | Existing Blueticks MCP endpoint, invoked server-side only after runtime authentication and tool-scope review |
-| AI provider | Disabled by default; no Bedrock invocation in the zero-spend configuration |
+| Frontend | Next.js; Cognito Hosted UI authorization-code flow with PKCE |
+| API | FastAPI + Mangum on Lambda; API Gateway HTTP API |
+| Authentication | Cognito User Pool; JWT authorizer plus Lambda verification of ID token, issuer, audience and token_use |
+| Persistence | DynamoDB tables for users, integrations, approvals, per-app permissions, audit and chat history |
+| Background tasks | SQS Standard queue + dead-letter queue + Lambda event source |
+| Operational logs | Lambda/CloudWatch (retention/cost review still required) |
+| WhatsApp | Existing Blueticks MCP endpoint; runtime token only from Secrets Manager |
+| AI | Disabled by default; optional external provider secret invokes paid model APIs |
 
-## Files
+## Implemented in this branch
 
-- `template.yaml`: CloudFormation/SAM resource foundation for Cognito, four DynamoDB tables, SQS queues and an HTTP API with a Cognito JWT authorizer. It deliberately does not contain a Lambda integration or deployable application handler yet.
-- `../terraform`: legacy ECS/RDS/Redis infrastructure starter. Retained for reference; it is not the target architecture and must not be applied for the ₹0 plan.
+- `template.yaml`: SAM template for Cognito, six DynamoDB tables, SQS and DLQ, Cognito-JWT-protected HTTP API, API Lambda and SQS worker. DynamoDB provisioned capacity is set to 1 RCU/1 WCU per table to stay below the commonly advertised 25/25 allowance in aggregate, but eligibility and all other costs must still be checked.
+- `backend/app/serverless_app.py`: Cognito ID-token verification; DynamoDB operations for integration catalog, approvals, read/write/send grants, audit events and chat output; SQS enqueue; optional Blueticks MCP discovery/tool invocation; optional external AI provider configured through Secrets Manager. No provider secret means no AI model call.
+- `backend/app/serverless_worker.py`: SQS batch handler with partial-batch failure response. It validates message shape and supported task types but deliberately performs no external side effects yet.
+- `frontend/app/page.tsx`: Cognito Hosted UI authorization-code flow with PKCE, state verification, sessionStorage token handling, refresh-token exchange and sign-out.
+- Legacy ECS/RDS/Redis Terraform remains for reference only. It is not the selected architecture and must not be applied for the INR 0 plan.
 
-## Important implementation gap
+## Remaining blockers — not production-ready
 
-The current FastAPI application uses SQLAlchemy models and a relational database. Simply adding Mangum or changing a connection string will not make it work with DynamoDB. The API must be refactored behind a repository/data-access layer, preserving per-user isolation, approval state transitions, audit records, idempotency and the existing HTTP contracts. Then a Lambda adapter and API Gateway routes must be added and tested. The SAM template is not a complete application deployment.
+1. **SAM validation/build:** AWS SAM CLI and CloudFormation validation have not been run. Template syntax parsing alone is not sufficient. Check every intrinsic, policy, route authorizer, packaging path and generated IAM role.
+2. **SQS task handlers:** Worker currently validates then acknowledges supported task types without doing the task. Add concrete handlers, idempotency store, bounded retries, observability and authorization checks before enabling jobs.
+3. **DynamoDB operational quality:** Add pagination for scan/query results, conditional/idempotent approval request creation, audit retention strategy and load/concurrency tests. Validate key design against actual access patterns.
+4. **Cognito and frontend:** Set the Hosted UI domain prefix and exact callback/logout URLs. Configure matching frontend environment variables. Test sign-in, refresh, expiry, logout, CORS and 401 handling against a test user pool before use.
+5. **Blueticks:** A separate AWS Secrets Manager secret is needed for the Lambda runtime. ChatGPT's existing Blueticks connector credentials are not available automatically to AWS. Do not overwrite or rotate the existing connection. Discover the actual tool catalogue and explicitly configure read/send allowlists; unknown tools default to write.
+6. **AI:** The optional provider secret path can incur third-party model charges. Leave it empty under the INR 0 budget. Bedrock is not invoked.
+7. **IAM and monitoring:** Review generated Lambda roles, reduce table permissions to only needed operations, add log retention, alarms and sensitive-data redaction.
+8. **Frontend hosting:** Amplify is not configured or deployed. Verify account-plan eligibility, build minutes, bandwidth, storage and domain/DNS costs before use.
+9. **Security testing:** Add rate limits, request size limits, CSRF review if cookies are introduced, CSP/security headers, dependency scanning, secret scanning, penetration tests and backup/restore procedures.
+10. **Cost approval:** Review AWS Pricing Calculator estimates and account Free/Paid plan restrictions for ap-south-2. With a strict INR 0 limit, do not deploy if any resource has an unavoidable charge or uncertain eligibility.
 
-## Required work before any deployment
+## Local configuration for Cognito frontend
 
-1. Confirm AWS account type (Free vs Paid) and that required services are permitted in `ap-south-2`.
-2. Verify current free allowances and regional pricing for Cognito, DynamoDB provisioned capacity, SQS, Lambda, API Gateway, CloudWatch and Amplify. Do not assume old free-tier tables still apply.
-3. Set billing notifications and Free Tier alerts. Budgets are alerts, not hard spend caps.
-4. Implement and test the DynamoDB repository layer and Lambda handler locally.
-5. Add API routes with JWT authorizer on every protected route. The API Gateway authorizer must be explicitly attached to routes; defining it alone does not protect them.
-6. Implement least-privilege Lambda IAM policies for only the four tables and the specific SQS queue.
-7. Add request throttling, payload limits, CORS allowlist, structured logs with sensitive-data redaction, retries/DLQ handling, idempotency and data-retention policies.
-8. Add Amplify build configuration only after cost/plan review.
-9. Validate with SAM/CloudFormation lint and a change set. A change set is not permission to execute it.
-10. Obtain explicit approval before creating any resources.
+After an approved test deployment, configure these public (non-secret) build variables in the frontend hosting environment:
 
-## Security notes
+- `NEXT_PUBLIC_API_BASE_URL`: API Gateway URL
+- `NEXT_PUBLIC_COGNITO_DOMAIN`: Cognito Hosted UI domain output
+- `NEXT_PUBLIC_COGNITO_CLIENT_ID`: Cognito app client ID output
+- `NEXT_PUBLIC_COGNITO_REDIRECT_URI`: exact registered callback URL, e.g. the local development origin
+
+Do not put tokens, client secrets, Blueticks bearer tokens, AWS keys or provider API keys in `NEXT_PUBLIC_*` variables.
+
+## Security
 
 - Never commit AWS keys, Blueticks tokens, OAuth tokens, JWT signing secrets, `.env` files or Terraform state.
-- Never treat inbound WhatsApp messages, email, files, MCP tool output or model output as trusted instructions.
-- Derive the user identity from a cryptographically verified Cognito JWT `sub`; never accept a caller-supplied `userId` as identity.
-- Keep read, write and send scopes separate. Discovery must never imply consent.
-- The existing Blueticks ChatGPT connector is separate from credentials available to a Lambda runtime. Do not overwrite, rotate or recreate the existing connection.
+- Treat inbound WhatsApp messages, email, files, MCP tool output and model output as untrusted data.
+- Identity comes from a cryptographically verified Cognito ID token `sub`; never accept caller-supplied user IDs.
+- Keep read, write and send scopes separate. Discovery never grants consent.
+- The existing Blueticks ChatGPT connector is separate from AWS runtime credentials.
+- Do not deploy this template under the current INR 0 budget without explicit review and approval.
