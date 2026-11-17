@@ -5,7 +5,7 @@ import os
 import uuid
 from datetime import datetime, timezone
 from functools import lru_cache
-from urllib.parse import urlparse
+from botocore.exceptions import ClientError
 
 import boto3
 import jwt
@@ -102,9 +102,9 @@ async def health():
 async def integrations(uid: str = Depends(current_user)):
     try:
         ensure_blueticks_catalog()
-    except Exception as exc:
-        if "ConditionalCheckFailed" not in type(exc).__name__:
-            log.warning("Catalog seed skipped (%s)", type(exc).__name__)
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") != "ConditionalCheckFailedException":
+            log.warning("Catalog seed failed (%s)", exc.response.get("Error", {}).get("Code", "unknown"))
     rows = table("integrations").scan().get("Items", [])
     out = []
     for item in rows:

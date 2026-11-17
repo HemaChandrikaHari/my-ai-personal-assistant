@@ -25,6 +25,14 @@ Parameters:
     Type: String
     Default: ''
     Description: Optional AI provider secret ARN. Leave empty to keep paid AI disabled.
+  BlueticksReadOnlyTools:
+    Type: String
+    Default: ''
+    Description: Comma-separated exact tool names verified as read-only after discovery.
+  BlueticksSendTools:
+    Type: String
+    Default: ''
+    Description: Comma-separated exact tool names that send messages; leave empty until explicitly approved.
 Conditions:
   HasBlueticksSecret: !Not [!Equals [!Ref BlueticksSecretArn, '']]
   HasAiSecret: !Not [!Equals [!Ref AiProviderSecretArn, '']]
@@ -214,8 +222,8 @@ Resources:
           TASK_QUEUE_URL: !Ref AssistantTaskQueue
           BLUETICKS_SECRET_ARN: !If [HasBlueticksSecret, !Ref BlueticksSecretArn, '']
           AI_PROVIDER_SECRET_ARN: !If [HasAiSecret, !Ref AiProviderSecretArn, '']
-          BLUETICKS_READ_ONLY_TOOLS: ''
-          BLUETICKS_SEND_TOOLS: ''
+          BLUETICKS_READ_ONLY_TOOLS: !Ref BlueticksReadOnlyTools
+          BLUETICKS_SEND_TOOLS: !Ref BlueticksSendTools
       Policies:
         - Statement:
             - Effect: Allow
