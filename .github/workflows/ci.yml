@@ -16,6 +16,10 @@ jobs:
       - run: PYTHONPATH=mcp-server python -c "import server; assert server.TRANSPORT == 'stdio'"
       - run: PYTHONPATH=backend python -m pytest -q backend/tests
       - run: cd backend && DATABASE_URL=sqlite+aiosqlite:///./ci_migration.db python -m alembic upgrade head
+      - name: Build backend container (includes production migrations)
+        run: docker build --tag personal-assistant-backend:ci ./backend
+      - name: Build MCP container
+        run: docker build --tag personal-assistant-mcp:ci ./mcp-server
   frontend:
     runs-on: ubuntu-latest
     steps:
@@ -26,3 +30,5 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: cd frontend && npm ci && npm audit --audit-level=high && npm run build
+      - name: Build production frontend container
+        run: docker build --tag personal-assistant-frontend:ci --build-arg NEXT_PUBLIC_API_BASE_URL=https://api.example.invalid --build-arg NEXT_PUBLIC_ENABLE_DEV_AUTH=false ./frontend
