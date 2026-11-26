@@ -118,7 +118,7 @@ async def test_expired_todoist_token_refreshes_and_rotates_refresh_token(
     assert token == "new-access"
     row = await oauth._credential(db_session, "owner-1", "todoist")
     assert oauth._decrypt(row.refresh_token_encrypted) == "rotated-refresh"
-    assert row.expires_at > datetime.now(timezone.utc)
+    assert oauth._aware_utc(row.expires_at) > datetime.now(timezone.utc)
 
 
 @pytest.mark.asyncio
