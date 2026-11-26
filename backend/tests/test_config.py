@@ -10,15 +10,24 @@ def test_development_settings_keep_local_defaults():
     assert settings.blueticks_mcp_url == "https://api.blueticks.co/mcp"
 
 
-def test_production_rejects_placeholder_jwt_secret():
-    with pytest.raises(ValidationError, match="Production requires a unique JWT_SECRET"):
-        Settings(app_env="production", jwt_secret="development-only-change-me", _env_file=None)
+def test_production_rejects_missing_oidc_configuration():
+    with pytest.raises(ValidationError, match="Production requires OIDC_ISSUER"):
+        Settings(app_env="production", _env_file=None)
 
 
-def test_production_accepts_long_unique_jwt_secret():
+def test_production_accepts_complete_oidc_and_encryption_configuration():
     settings = Settings(
         app_env="production",
-        jwt_secret="a" * 48,
+        oidc_issuer="https://issuer.example.com/",
+        oidc_audience="assistant-api",
+        oidc_jwks_url="https://issuer.example.com/.well-known/jwks.json",
+        token_encryption_key="MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
         _env_file=None,
     )
     assert settings.app_env == "production"
+    assert settings.oidc_audience == "assistant-api"
+
+
+def test_blueticks_endpoint_is_pinned():
+    with pytest.raises(ValidationError, match="BLUETICKS_MCP_URL must remain"):
+        Settings(blueticks_mcp_url="https://example.com/mcp", _env_file=None)
