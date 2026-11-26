@@ -79,6 +79,19 @@ export default function Home() {
     }
   }
 
+  async function queueRefresh(provider: string) {
+    setBusy(provider + "-refresh");
+    try {
+      const response = await fetch(API + "/api/v1/jobs/refresh-connection", {
+        method: "POST", headers: headers(), body: JSON.stringify({ provider }),
+      });
+      const data = await response.json();
+      setAnswer(response.ok ? "Token refresh queued for " + provider + " (job " + data.job_id + ")." :
+        data.detail || "Could not queue token refresh");
+    } catch { setAnswer("Could not reach the backend"); }
+    finally { setBusy(""); }
+  }
+
   async function disconnect(provider: string) {
     setBusy(provider);
     try {
@@ -224,7 +237,10 @@ export default function Home() {
           </div>
           <div className="scopes">
             {item?.connected
-              ? <button className="secondary" disabled={!!busy} onClick={() => disconnect(provider)}>Disconnect</button>
+              ? <>
+                  <button className="secondary" disabled={!!busy} onClick={() => queueRefresh(provider)}>Refresh token</button>
+                  <button className="secondary" disabled={!!busy} onClick={() => disconnect(provider)}>Disconnect</button>
+                </>
               : <button disabled={!!busy} onClick={() => connect(provider)}>
                   Connect {provider === "google" ? "Google" : "Todoist"}
                 </button>}
