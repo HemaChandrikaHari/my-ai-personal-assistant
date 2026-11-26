@@ -387,3 +387,97 @@ async def disconnect(provider: str, uid: str = Depends(current_user),
     await db.delete(row)
     await db.commit()
     return {"provider": provider, "connected": False, "message": "Local credentials deleted; revoke app access in provider settings if needed."}
+
+
+CHAT_READ_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "google_gmail_list",
+            "description": "Search the connected user's Gmail inbox and return message IDs and thread IDs. Read-only.",
+            "parameters": {"type": "object", "properties": {
+                "query": {"type": "string", "maxLength": 200, "description": "Optional Gmail search query."},
+                "max_results": {"type": "integer", "minimum": 1, "maximum": 20, "default": 10},
+            }, "additionalProperties": False},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "google_gmail_get",
+            "description": "Read metadata for one Gmail message by its message ID. Read-only.",
+            "parameters": {"type": "object", "properties": {
+                "message_id": {"type": "string", "minLength": 1, "maxLength": 256},
+            }, "required": ["message_id"], "additionalProperties": False},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "google_calendar_list",
+            "description": "List upcoming events in the connected user's primary Google Calendar. Read-only.",
+            "parameters": {"type": "object", "properties": {
+                "max_results": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10},
+            }, "additionalProperties": False},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "todoist_tasks_list",
+            "description": "List tasks from the connected user's Todoist account. Read-only.",
+            "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
+        },
+    },
+]
+
+
+async def execute_chat_read_tool(db: AsyncSession, uid: str, tool_name: str, arguments: dict):
+    """Execute only the fixed read-only provider tools exposed to chat."""
+    if tool_name == "google_gmail_list":
+        row = await _credential(db, uid, "google")
+        if "https://www.googleapis.com/auth/gmail.readonly" not in row.scopes:
+            raise HTTPException(403, "Gmail read scope is not connected")
+        token = await _access_token(db, uid, "google")
+        query = arguments.get("query", "")
+        if not isinstance(query, str) or len(query) > 200:
+            raise HTTPException(422, "Invalid Gmail query")
+        maximum = arguments.get("max_results", 10)
+        if not isinstance(maximum, int) or isinstance(maximum, bool) or not 1 <= maximum <= 20:
+            raise HTTPException(422, "max_results must be between 1 and 20")
+        params = {"maxResults": maximum}
+        if query:
+            params["q"] = query
+        return await _api_get("https://gmail.googleapis.com/gmail/v1/users/me/messages", token, params)
+    if tool_name == "google_gmail_get":
+        message_id = arguments.get("message_id")
+        if not isinstance(message_id, str) or not message_id or len(message_id) > 256 or "/" in message_id:
+            raise HTTPException(422, "Invalid Gmail message id")
+        row = await _credential(db, uid, "google")
+        if "https://www.googleapis.com/auth/gmail.readonly" not in row.scopes:
+            raise HTTPException(403, "Gmail read scope is not connected")
+        token = await _access_token(db, uid, "google")
+        return await _api_get(
+            f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{message_id}", token,
+            {"format": "metadata", "metadataHeaders": ["From", "To", "Subject", "Date"]},
+        )
+    if tool_name == "google_calendar_list":
+        row = await _credential(db, uid, "google")
+        if "https://www.googleapis.com/auth/calendar.events" not in row.scopes:
+            raise HTTPException(403, "Calendar read scope is not connected")
+        maximum = arguments.get("max_results", 10)
+        if not isinstance(maximum, int) or isinstance(maximum, bool) or not 1 <= maximum <= 50:
+            raise HTTPException(422, "max_results must be between 1 and 50")
+        token = await _access_token(db, uid, "google")
+        return await _api_get(
+            "https://www.googleapis.com/calendar/v3/calendars/primary/events", token,
+            {"maxResults": maximum, "singleEvents": "true", "orderBy": "startTime",
+             "timeMin": datetime.utcnow().isoformat() + "Z"},
+        )
+    if tool_name == "todoist_tasks_list":
+        row = await _credential(db, uid, "todoist")
+        if "data:read" not in row.scopes and "data:read_write" not in row.scopes:
+            raise HTTPException(403, "Todoist read scope is not connected")
+        token = await _access_token(db, uid, "todoist")
+        return await _api_get("https://api.todoist.com/api/v1/tasks", token)
+    raise HTTPException(403, "Tool is not in the read-only allowlist")
