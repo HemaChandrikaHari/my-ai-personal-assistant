@@ -1,4 +1,6 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
 
 class Settings(BaseSettings):
     app_env: str = "development"
@@ -6,10 +8,27 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     jwt_secret: str = "development-only-change-me"
     openai_api_key: str | None = None
-    openai_model: str = "gpt-6"
-    blueticks_mcp_url: str | None = "https://api.blueticks.co/mcp"
+    openai_model: str = "gpt-4o-mini"
+    blueticks_mcp_url: str = "https://api.blueticks.co/mcp"
     blueticks_secret_arn: str | None = None
     cors_origins: str = "http://localhost:3000"
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        case_sensitive=False,
+    )
+
+    @model_validator(mode="after")
+    def validate_security_settings(self):
+        if self.app_env.lower() in {"production", "prod"}:
+            if len(self.jwt_secret) < 32 or self.jwt_secret == "development-only-change-me":
+                raise ValueError("Production requires a unique JWT_SECRET of at least 32 characters")
+            if not self.openai_api_key:
+                # Chat can be disabled, so a missing provider key is not a startup failure.
+                pass
+        return self
+
 
 settings = Settings()
