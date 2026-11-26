@@ -38,10 +38,41 @@ async def handle_job(job: dict):
     raise ValueError("Unsupported job type")
 
 
+async def recover_processing_jobs(client):
+    """Requeue unacknowledged jobs left behind by a crashed worker."""
+    recovered = 0
+    # Migrate jobs left in the legacy retry list before recovering in-flight work.
+    while True:
+        raw = await client.rpop("assistant:retry")
+        if raw is None:
+            break
+        await client.lpush("assistant:jobs", raw)
+        recovered += 1
+    # One worker replica is expected. A process restart means the old worker is gone,
+    # so its in-flight locks can safely be cleared before the jobs are retried.
+    while True:
+        raw = await client.rpop("assistant:processing")
+        if raw is None:
+            break
+        try:
+            job = json.loads(raw)
+            job_id = str(job.get("id", "")) if isinstance(job, dict) else ""
+            if job_id:
+                await client.delete("assistant:processing:" + job_id)
+        except Exception:
+            pass
+        await client.lpush("assistant:jobs", raw)
+        recovered += 1
+    return recovered
+
+
 async def run():
     client = redis.from_url(settings.redis_url, decode_responses=True)
     next_cleanup = 0.0
     try:
+        recovered = await recover_processing_jobs(client)
+        if recovered:
+            log.warning("Recovered %s unacknowledged job(s) after worker restart", recovered)
         while True:
             if time.monotonic() >= next_cleanup:
                 try:
@@ -50,10 +81,11 @@ async def run():
                     log.exception("OAuth state cleanup failed")
                 next_cleanup = time.monotonic() + 300
 
-            item = await client.blpop(["assistant:jobs", "assistant:retry"], timeout=5)
-            if not item:
+            # BRPOPLPUSH atomically moves a job into the processing list. If this
+            # process dies before acknowledging it, the next worker startup recovers it.
+            raw = await client.brpoplpush("assistant:jobs", "assistant:processing", timeout=5)
+            if raw is None:
                 continue
-            queue_name, raw = item
             try:
                 job = json.loads(raw)
                 if not isinstance(job, dict):
@@ -64,15 +96,17 @@ async def run():
             except Exception:
                 log.exception("Discarding malformed job payload")
                 await client.rpush("assistant:dead", raw)
+                await client.lrem("assistant:processing", 1, raw)
                 continue
 
             if await client.exists("assistant:done:" + job_id):
+                await client.lrem("assistant:processing", 1, raw)
                 continue
             lock_key = "assistant:processing:" + job_id
             locked = await client.set(lock_key, "1", nx=True, ex=300)
             if not locked:
-                await client.rpush(queue_name, raw)
-                await asyncio.sleep(0.5)
+                # Another worker owns this id; don't leave a duplicate in-flight copy.
+                await client.lrem("assistant:processing", 1, raw)
                 continue
 
             try:
@@ -85,10 +119,11 @@ async def run():
                 log.exception("Job %s failed on attempt %s", job_id, attempts)
                 if attempts < MAX_ATTEMPTS:
                     await asyncio.sleep(min(2 ** attempts, 30))
-                    await client.rpush("assistant:retry", json.dumps(job))
+                    await client.rpush("assistant:jobs", json.dumps(job))
                 else:
                     await client.rpush("assistant:dead", json.dumps(job))
             finally:
+                await client.lrem("assistant:processing", 1, raw)
                 await client.delete(lock_key)
     finally:
         await client.aclose()
