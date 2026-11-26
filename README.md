@@ -9,7 +9,7 @@ A modular assistant with a FastAPI API, Next.js dashboard, a restricted ChatGPT 
 4. Run docker compose up --build.
 5. Open http://localhost:3000 and check http://localhost:8000/health.
 
-Local Compose deliberately enables a development-only X-User-ID identity. Production requires an HS256 JWT containing sub and exp claims and a JWT_SECRET of at least 32 characters. Replace this bootstrap with a real OIDC identity provider before internet exposure. Set NEXT_PUBLIC_ENABLE_DEV_AUTH=false in production.
+Local Compose deliberately enables a development-only X-User-ID identity. Production requires an external OIDC provider and RS256 bearer tokens validated against OIDC_ISSUER, OIDC_AUDIENCE and OIDC_JWKS_URL. Configure these values before starting with APP_ENV=production; production startup fails closed if they are missing. Set NEXT_PUBLIC_ENABLE_DEV_AUTH=false in production. The API validates externally issued access tokens; it does not implement an interactive identity-provider login screen.
 
 ## Database migrations
 Development startup creates tables for convenience. For production, run Alembic migrations from the backend directory:
@@ -20,7 +20,7 @@ Development startup creates tables for convenience. For production, run Alembic 
 The existing endpoint remains https://api.blueticks.co/mcp. Discovery is explicit and does not grant access. Tool invocation requires a separately approved read, write or send scope. Set BLUETICKS_READ_ONLY_TOOLS and BLUETICKS_SEND_TOOLS to exact tool names after inspecting capabilities; do not guess tool names. The AI chat tool loop exposes only discovered tools on the read-only allowlist and only after that user has approved the read scope. It never automatically invokes write or send tools. Direct tool invocation still requires the corresponding per-user scope. Unknown tools default to write permission. Credentials are read from runtime environment only; use AWS Secrets Manager in deployment. Existing Blueticks credentials are not stored in this repository or copied from ChatGPT's separate connection.
 
 ## Assistant chat
-The chat endpoint supports a bounded OpenAI function-calling loop for explicitly allowlisted, discovered Blueticks read-only tools. Users must first discover capabilities, configure exact tool names in BLUETICKS_READ_ONLY_TOOLS, and approve the read scope. The model cannot automatically invoke write/send tools. Tool results are treated as untrusted input and truncated before being returned to the model.
+The chat endpoint supports a bounded OpenAI function-calling loop for explicitly allowlisted, discovered Blueticks read-only tools and connected Google/Todoist read tools. Blueticks users must first discover capabilities, configure exact tool names in BLUETICKS_READ_ONLY_TOOLS, and approve the read scope. Google/Todoist read tools are offered only when the user has connected the account and the provider granted the corresponding read scope. The model cannot automatically invoke write/send tools. Tool results are treated as untrusted input and truncated before being returned to the model.
 
 ## Google and Todoist OAuth
 
@@ -37,12 +37,15 @@ API routes: `GET /api/v1/connections`, `GET /api/v1/oauth/{google|todoist}/start
 ## ChatGPT MCP
 The restricted bridge is in mcp-server/server.py. Run it with docker compose --profile mcp up --build mcp-server after supplying a short-lived, user-scoped ASSISTANT_BACKEND_TOKEN. The bridge exposes health, integration listing and assistant chat only. Do not share one backend token among multiple users.
 
+## Authentication
+Production API bearer tokens are validated as RS256 JWTs using the configured OIDC issuer, audience and JWKS URL. The stable token subject is the per-user data partition key. Configure your identity provider to issue API access tokens with the expected audience. Local development's X-User-ID bypass is disabled outside APP_ENV=development.
+
 ## AWS
 The Terraform directory is a starter for VPC, ECR, ECS cluster, encrypted RDS with AWS-managed credentials, Redis, IAM roles, CloudWatch and ALB. It is not a complete deployable environment: ECS task definitions/services, WAF, ACM, autoscaling, application secret injection and operational alarms still need implementation and review. Review monthly costs before provisioning.
 
 ## Current limitations
-- Real OIDC, issuer/audience validation, token refresh/revocation and multi-user identity mapping are not yet implemented.
-- The Redis worker is a safe queue skeleton; concrete task handlers, retries with backoff and scheduler are not yet implemented.
-- Live Blueticks discovery/tool execution requires the runtime credentials and exact tool-scope allowlists configured by the owner.
+- OIDC RS256 issuer/audience/JWKS validation is implemented for externally issued access tokens. Interactive login, account provisioning, provider-specific token revocation and identity-provider administration remain external setup tasks.
+- The Redis worker remains a minimal queue skeleton; concrete reminder/digest handlers, durable retry semantics and a scheduler are not yet implemented.
+- Live Blueticks discovery/tool execution and Google/Todoist API access require the owner's runtime credentials, OAuth app registrations, user consent and exact tool-scope allowlists.
 - AWS infrastructure has not been applied. Docker and Terraform CLIs were not available in the current development environment.
 - Configure TLS, WAF, rate limits, backups, restore tests, monitoring, secrets injection and security scans before production use.
