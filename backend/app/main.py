@@ -21,6 +21,8 @@ BLUETICKS_URL = os.getenv("BLUETICKS_MCP_URL", "https://api.blueticks.co/mcp")
 BLUETICKS_TOKEN = os.getenv("BLUETICKS_BEARER_TOKEN", "")
 READ_TOOLS = set(filter(None, os.getenv("BLUETICKS_READ_ONLY_TOOLS", "").split(",")))
 SEND_TOOLS = set(filter(None, os.getenv("BLUETICKS_SEND_TOOLS", "").split(",")))
+if READ_TOOLS & SEND_TOOLS:
+    raise RuntimeError("Blueticks read-only and send tool allowlists must not overlap")
 parsed = urlparse(BLUETICKS_URL)
 if parsed.scheme != "https" or parsed.hostname != "api.blueticks.co":
     raise RuntimeError("Blueticks URL must be https://api.blueticks.co/mcp")
@@ -252,7 +254,10 @@ async def chat(body: ChatIn, uid: str = Depends(current_user), db: AsyncSession 
                     tool_output = "Tool denied: no approved read-only permission."
                 else:
                     try:
-                        arguments = json.loads(tool_call.function.arguments or "{}")
+                        arguments_json = tool_call.function.arguments or "{}"
+                        if len(arguments_json) > 16000:
+                            raise ValueError("Tool arguments exceed the 16 KB limit")
+                        arguments = json.loads(arguments_json)
                         if not isinstance(arguments, dict):
                             raise ValueError("Tool arguments must be a JSON object")
                         tool_output = await execute_approved_read_tool(tool_name, arguments)
