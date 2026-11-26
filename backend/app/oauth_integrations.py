@@ -314,7 +314,7 @@ async def _gmail_message_text(token: str, message_id: str) -> dict:
             collect(child)
 
     collect(data.get("payload") or {})
-    body_text = "\\n".join(plain_parts)[:12000]
+    body_text = "\n".join(plain_parts)[:12000]
     return {
         "id": data.get("id"),
         "threadId": data.get("threadId"),
