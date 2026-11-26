@@ -32,7 +32,7 @@ Register these exact local callback URLs in each provider console:
 
 Google OAuth requests Gmail read-only and Calendar event access. Todoist requests `data:read_write`; users can choose read-only access if offered by Todoist, in which case task creation is rejected by the API. The backend encrypts access/refresh tokens at rest, stores hashed one-time OAuth state for ten minutes, refreshes expiring tokens, and supports disconnecting local credentials. Provider credentials must be configured by the owner; the code cannot register OAuth apps or accept consent on their behalf.
 
-API routes: `GET /api/v1/connections`, `GET /api/v1/oauth/{google|todoist}/start`, `GET /api/v1/google/gmail/messages`, `GET /api/v1/google/calendar/events`, `POST /api/v1/google/calendar/events`, `GET /api/v1/todoist/tasks`, `POST /api/v1/todoist/tasks`, and `DELETE /api/v1/connections/{google|todoist}`. Write endpoints perform the specific requested operation directly; keep them behind an explicit user action/confirmation in any AI workflow.
+API routes: `GET /api/v1/connections`, `POST /api/v1/jobs/refresh-connection`, `GET /api/v1/oauth/{google|todoist}/start`, `GET /api/v1/google/gmail/messages`, `GET /api/v1/google/calendar/events`, `POST /api/v1/google/calendar/events`, `GET /api/v1/todoist/tasks`, `POST /api/v1/todoist/tasks`, and `DELETE /api/v1/connections/{google|todoist}`. Write endpoints perform the specific requested operation directly; keep them behind an explicit user action/confirmation in any AI workflow.
 
 ## Codex and ChatGPT Desktop MCP
 The MCP bridge is in `mcp-server/server.py`. For local Codex, use stdio transport and the development-only identity described in [docs/CODEX_SETUP.md](docs/CODEX_SETUP.md). This avoids publishing an unauthenticated MCP endpoint. The bridge exposes backend health, integration status, connected-account status and assistant chat.
@@ -47,7 +47,7 @@ The Terraform directory is a starter for VPC, ECR, ECS cluster, encrypted RDS wi
 
 ## Current limitations
 - OIDC RS256 issuer/audience/JWKS validation is implemented for externally issued access tokens. Interactive login, account provisioning, provider-specific token revocation and identity-provider administration remain external setup tasks.
-- The Redis worker remains a minimal queue skeleton; concrete reminder/digest handlers, durable retry semantics and a scheduler are not yet implemented.
+- The Redis worker now handles queued OAuth token refresh and periodic expired-state cleanup with bounded retries and a dead-letter list. User-facing reminder/digest scheduling and crash-proof queue recovery are still not implemented.
 - Live Blueticks discovery/tool execution and Google/Todoist API access require the owner's runtime credentials, OAuth app registrations, user consent and exact tool-scope allowlists.
 - AWS infrastructure has not been applied. Docker and Terraform CLIs were not available in the current development environment.
 - Configure TLS, WAF, rate limits, backups, restore tests, monitoring, secrets injection and security scans before production use.
