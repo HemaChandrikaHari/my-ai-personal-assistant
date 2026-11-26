@@ -9,7 +9,9 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r backend/requirements.txt
+      - run: python -m compileall -q backend/app
       - run: PYTHONPATH=backend python -m pytest -q backend/tests
+      - run: cd backend && DATABASE_URL=sqlite+aiosqlite:///./ci_migration.db python -m alembic upgrade head
   frontend:
     runs-on: ubuntu-latest
     steps:
