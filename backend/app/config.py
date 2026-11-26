@@ -1,4 +1,4 @@
-from pydantic import model_validator
+from cryptography.fernet import Fernet, InvalidToken\nfrom pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -41,6 +41,15 @@ class Settings(BaseSettings):
                 raise ValueError("Production requires OIDC_ISSUER, OIDC_AUDIENCE and OIDC_JWKS_URL")
             if not self.token_encryption_key:
                 raise ValueError("Production requires TOKEN_ENCRYPTION_KEY")
+            if not self.oidc_issuer.startswith("https://") or not self.oidc_jwks_url.startswith("https://"):
+                raise ValueError("Production OIDC issuer and JWKS URL must use HTTPS")
+            try:
+                Fernet(self.token_encryption_key.encode("ascii"))
+            except (ValueError, UnicodeEncodeError):
+                raise ValueError("TOKEN_ENCRYPTION_KEY must be a valid Fernet key")
+            for redirect_uri in (self.google_redirect_uri, self.todoist_redirect_uri):
+                if redirect_uri and not redirect_uri.startswith("https://"):
+                    raise ValueError("Production OAuth redirect URIs must use HTTPS")
         if self.blueticks_mcp_url != "https://api.blueticks.co/mcp":
             raise ValueError("BLUETICKS_MCP_URL must remain https://api.blueticks.co/mcp")
         return self
