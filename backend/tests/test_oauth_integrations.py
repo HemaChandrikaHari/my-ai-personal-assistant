@@ -8,20 +8,22 @@ from app import oauth_integrations as oauth
 
 
 @pytest.mark.asyncio
-async def test_oauth_state_is_one_time_and_bound_to_provider():
+async def test_oauth_state_is_provider_bound_and_one_time():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     async with sessions() as db:
-        state = await oauth._new_state(db, "user-1", "google")
+        mismatched = await oauth._new_state(db, "user-1", "google")
         with pytest.raises(HTTPException) as mismatch:
-            await oauth._consume_state(db, state, "todoist")
+            await oauth._consume_state(db, mismatched, "todoist")
         assert mismatch.value.status_code == 400
-        uid = await oauth._consume_state(db, state, "google")
+
+        valid = await oauth._new_state(db, "user-1", "google")
+        uid = await oauth._consume_state(db, valid, "google")
         assert uid == "user-1"
         with pytest.raises(HTTPException):
-            await oauth._consume_state(db, state, "google")
+            await oauth._consume_state(db, valid, "google")
     await engine.dispose()
 
 
