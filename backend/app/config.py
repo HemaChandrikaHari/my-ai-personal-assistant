@@ -41,12 +41,12 @@ class Settings(BaseSettings):
         if "*" in origins:
             raise ValueError("CORS_ORIGINS must not contain a wildcard when credentials are enabled")
         if self.app_env.lower() in {"production", "prod"}:
-            if not self.frontend_url.startswith("https://"):
-                raise ValueError("Production FRONTEND_URL must use HTTPS")
             if not (self.oidc_issuer and self.oidc_audience and self.oidc_jwks_url):
                 raise ValueError("Production requires OIDC_ISSUER, OIDC_AUDIENCE and OIDC_JWKS_URL")
             if not self.token_encryption_key:
                 raise ValueError("Production requires TOKEN_ENCRYPTION_KEY")
+            if not self.frontend_url.startswith("https://"):
+                raise ValueError("Production FRONTEND_URL must use HTTPS")
             if not self.oidc_issuer.startswith("https://") or not self.oidc_jwks_url.startswith("https://"):
                 raise ValueError("Production OIDC issuer and JWKS URL must use HTTPS")
             try:
