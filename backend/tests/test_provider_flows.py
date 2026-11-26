@@ -163,3 +163,95 @@ async def test_oauth_state_cannot_be_reused_or_consumed_by_another_provider(db_s
     assert await oauth._consume_state(db_session, state, "google") == "owner-1"
     with pytest.raises(Exception):
         await oauth._consume_state(db_session, state, "google")
+
+
+@pytest.mark.asyncio
+async def test_google_and_todoist_read_write_api_calls_use_user_scoped_tokens(
+    monkeypatch, token_key, db_session
+):
+    from datetime import datetime
+    from app import oauth_integrations as provider
+
+    google_scopes = "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar.events"
+    db_session.add_all([
+        OAuthCredential(
+            user_id="alice",
+            provider="google",
+            access_token_encrypted=provider._encrypt("alice-google-token"),
+            refresh_token_encrypted=None,
+            scopes=google_scopes,
+        ),
+        OAuthCredential(
+            user_id="alice",
+            provider="todoist",
+            access_token_encrypted=provider._encrypt("alice-todoist-token"),
+            refresh_token_encrypted=None,
+            scopes="data:read_write",
+        ),
+    ])
+    await db_session.commit()
+
+    def handler(request):
+        if request.url.host == "gmail.googleapis.com":
+            assert request.headers["authorization"] == "Bearer alice-google-token"
+            assert request.url.params["maxResults"] == "2"
+            return httpx.Response(200, json={"messages": [{"id": "mail-1"}]})
+        if request.url.host == "www.googleapis.com":
+            assert request.headers["authorization"] == "Bearer alice-google-token"
+            if request.method == "GET":
+                return httpx.Response(200, json={"items": [{"id": "event-1"}]})
+            payload = __import__("json").loads(request.content)
+            assert payload["summary"] == "Integration test event"
+            return httpx.Response(200, json={"id": "event-created", **payload})
+        if request.url.host == "api.todoist.com":
+            assert request.headers["authorization"] == "Bearer alice-todoist-token"
+            if request.method == "GET":
+                return httpx.Response(200, json={"results": [{"id": "task-1"}]})
+            payload = __import__("json").loads(request.content)
+            assert payload["content"] == "Integration test task"
+            return httpx.Response(200, json={"id": "task-created", **payload})
+        raise AssertionError(f"Unexpected provider URL: {request.url}")
+
+    mock_http_client(monkeypatch, handler)
+
+    gmail = await provider.gmail_messages(max_results=2, uid="alice", db=db_session)
+    calendar = await provider.calendar_events(max_results=5, uid="alice", db=db_session)
+    tasks = await provider.todoist_tasks(uid="alice", db=db_session)
+    event = await provider.create_calendar_event(
+        provider.CalendarEventIn(
+            summary="Integration test event",
+            start=datetime(2026, 11, 27, 10, 0, tzinfo=timezone.utc),
+            end=datetime(2026, 11, 27, 10, 30, tzinfo=timezone.utc),
+        ),
+        uid="alice",
+        db=db_session,
+    )
+    task = await provider.create_todoist_task(
+        provider.TodoistTaskIn(content="Integration test task"),
+        uid="alice",
+        db=db_session,
+    )
+
+    assert gmail["messages"][0]["id"] == "mail-1"
+    assert calendar["items"][0]["id"] == "event-1"
+    assert tasks["results"][0]["id"] == "task-1"
+    assert event["id"] == "event-created"
+    assert task["id"] == "task-created"
+
+
+@pytest.mark.asyncio
+async def test_provider_credentials_are_isolated_between_users(token_key, db_session):
+    from fastapi import HTTPException
+
+    db_session.add(OAuthCredential(
+        user_id="alice",
+        provider="google",
+        access_token_encrypted=oauth._encrypt("alice-only-token"),
+        scopes="https://www.googleapis.com/auth/gmail.readonly",
+    ))
+    await db_session.commit()
+
+    assert oauth._decrypt((await oauth._credential(db_session, "alice", "google")).access_token_encrypted) == "alice-only-token"
+    with pytest.raises(HTTPException) as error:
+        await oauth._credential(db_session, "bob", "google")
+    assert error.value.status_code == 404
