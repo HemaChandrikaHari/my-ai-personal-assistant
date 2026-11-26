@@ -26,7 +26,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r backend/requirements.txt
-      - run: python -m compileall -q backend/app mcp-server
+      - run: python -m compileall -q backend/app mcp-server scripts
       - run: PYTHONPATH=mcp-server python -c "import server; assert server.TRANSPORT == 'stdio'"
       - run: PYTHONPATH=backend python -m pytest -q backend/tests
       - run: cd backend && DATABASE_URL=sqlite+aiosqlite:///./ci_migration.db python -m alembic upgrade head
