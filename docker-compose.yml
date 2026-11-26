@@ -60,7 +60,7 @@ services:
       ASSISTANT_API_URL: http://backend:8000
       ASSISTANT_USER_ID: ${ASSISTANT_USER_ID:-local-developer}
       ASSISTANT_BACKEND_TOKEN: ${ASSISTANT_BACKEND_TOKEN:-}
-    ports: ["8001:8001"]
+    ports: ["127.0.0.1:8001:8001"]
     depends_on: [backend]
 volumes:
   pgdata:
