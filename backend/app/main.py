@@ -1,6 +1,8 @@
-import json, logging, os
+import json, logging, os, uuid
 from datetime import datetime, timezone
 from urllib.parse import urlparse
+from typing import Literal
+import redis.asyncio as redis
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -55,6 +57,9 @@ class ChatIn(BaseModel):
 class ToolIn(BaseModel):
     arguments: dict = Field(default_factory=dict)
 
+class RefreshConnectionIn(BaseModel):
+    provider: Literal["google", "todoist"]
+
 async def log_action(db, uid, action, resource, details=None):
     db.add(Audit(user_id=uid, action=action, resource=resource, details=details))
     await db.commit()
@@ -83,6 +88,29 @@ async def startup():
 @app.on_event("shutdown")
 async def shutdown():
     await engine.dispose()
+
+@app.post("/api/v1/jobs/refresh-connection")
+async def queue_connection_refresh(body: RefreshConnectionIn, uid: str = Depends(current_user),
+                                   db: AsyncSession = Depends(get_db)):
+    exists = await db.execute(select(OAuthCredential.id).where(
+        OAuthCredential.user_id == uid, OAuthCredential.provider == body.provider
+    ))
+    if exists.scalar_one_or_none() is None:
+        raise HTTPException(404, f"{body.provider.title()} is not connected")
+    job = {
+        "id": uuid.uuid4().hex,
+        "type": "refresh_oauth_token",
+        "user_id": uid,
+        "provider": body.provider,
+        "attempts": 0,
+    }
+    client = redis.from_url(settings.redis_url, decode_responses=True)
+    try:
+        await client.rpush("assistant:jobs", json.dumps(job))
+    finally:
+        await client.aclose()
+    return {"queued": True, "job_id": job["id"]}
+
 
 @app.get("/health")
 async def health():
