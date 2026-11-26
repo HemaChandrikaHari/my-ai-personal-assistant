@@ -248,7 +248,7 @@ export default function Home() {
       <input placeholder="Event title" value={eventSummary} onChange={event => setEventSummary(event.target.value)} />
       <label>Starts <input type="datetime-local" value={eventStart} onChange={event => setEventStart(event.target.value)} /></label>
       <label>Ends <input type="datetime-local" value={eventEnd} onChange={event => setEventEnd(event.target.value)} /></label>
-      <button disabled={!connections.find(x => x.provider === "google")?.connected || !eventSummary.trim() || !eventStart || !eventEnd || !!busy}
+      <button disabled={!connections.find(x => x.provider === "google")?.scopes.includes("https://www.googleapis.com/auth/calendar.events") || !eventSummary.trim() || !eventStart || !eventEnd || !!busy}
         onClick={createEvent}>Create Calendar event</button>
     </section>
 
