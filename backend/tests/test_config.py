@@ -31,3 +31,8 @@ def test_production_accepts_complete_oidc_and_encryption_configuration():
 def test_blueticks_endpoint_is_pinned():
     with pytest.raises(ValidationError, match="BLUETICKS_MCP_URL must remain"):
         Settings(blueticks_mcp_url="https://example.com/mcp", _env_file=None)
+
+
+def test_wildcard_cors_is_rejected():
+    with pytest.raises(ValidationError, match="CORS_ORIGINS must not contain a wildcard"):
+        Settings(cors_origins="*", _env_file=None)
