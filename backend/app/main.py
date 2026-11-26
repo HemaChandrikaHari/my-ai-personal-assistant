@@ -106,7 +106,7 @@ async def queue_connection_refresh(body: RefreshConnectionIn, uid: str = Depends
     }
     client = redis.from_url(settings.redis_url, decode_responses=True)
     try:
-        await client.rpush("assistant:jobs", json.dumps(job))
+        await client.lpush("assistant:jobs", json.dumps(job))
     finally:
         await client.aclose()
     return {"queued": True, "job_id": job["id"]}
