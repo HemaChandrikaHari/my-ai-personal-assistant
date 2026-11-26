@@ -240,7 +240,7 @@ async def _credential(db: AsyncSession, uid: str, provider: str) -> OAuthCredent
 
 async def _access_token(db: AsyncSession, uid: str, provider: str) -> str:
     row = await _credential(db, uid, provider)
-    if row.expires_at and row.expires_at <= _utcnow() + timedelta(seconds=90):
+    if row.expires_at and _aware_utc(row.expires_at) <= _utcnow() + timedelta(seconds=90):
         refresh_token = _decrypt(row.refresh_token_encrypted)
         if not refresh_token:
             raise HTTPException(401, f"{provider.title()} token expired; reconnect the account")
@@ -481,7 +481,7 @@ async def execute_chat_read_tool(db: AsyncSession, uid: str, tool_name: str, arg
         return await _api_get(
             "https://www.googleapis.com/calendar/v3/calendars/primary/events", token,
             {"maxResults": maximum, "singleEvents": "true", "orderBy": "startTime",
-             "timeMin": datetime.utcnow().isoformat() + "Z"},
+             "timeMin": _utcnow().isoformat().replace("+00:00", "Z")},
         )
     if tool_name == "todoist_tasks_list":
         row = await _credential(db, uid, "todoist")
