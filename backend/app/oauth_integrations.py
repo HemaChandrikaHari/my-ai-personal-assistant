@@ -3,6 +3,7 @@
 Tokens are encrypted at rest with Fernet. OAuth state is random, one-time,
 stored hashed, tied to the initiating user, and expires after ten minutes.
 """
+import base64
 import hashlib
 import os
 import secrets
@@ -289,6 +290,43 @@ async def _api_get(url: str, token: str, params: dict | None = None):
     return response.json()
 
 
+async def _gmail_message_text(token: str, message_id: str) -> dict:
+    data = await _api_get(
+        f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{message_id}",
+        token, {"format": "full"},
+    )
+    headers = {
+        item.get("name", "").lower(): item.get("value", "")
+        for item in (data.get("payload", {}).get("headers") or [])
+    }
+    plain_parts = []
+
+    def collect(part: dict):
+        body = part.get("body") or {}
+        encoded = body.get("data")
+        if encoded and part.get("mimeType") == "text/plain":
+            try:
+                padded = encoded + "=" * (-len(encoded) % 4)
+                plain_parts.append(base64.urlsafe_b64decode(padded).decode("utf-8", errors="replace"))
+            except (ValueError, TypeError):
+                pass
+        for child in part.get("parts") or []:
+            collect(child)
+
+    collect(data.get("payload") or {})
+    body_text = "\\n".join(plain_parts)[:12000]
+    return {
+        "id": data.get("id"),
+        "threadId": data.get("threadId"),
+        "snippet": data.get("snippet", ""),
+        "from": headers.get("from", ""),
+        "to": headers.get("to", ""),
+        "subject": headers.get("subject", ""),
+        "date": headers.get("date", ""),
+        "body_text": body_text,
+    }
+
+
 class CalendarEventIn(BaseModel):
     summary: str = Field(min_length=1, max_length=500)
     description: str | None = Field(default=None, max_length=5000)
@@ -324,8 +362,7 @@ async def gmail_message(message_id: str, uid: str = Depends(current_user),
     if "https://www.googleapis.com/auth/gmail.readonly" not in row.scopes:
         raise HTTPException(403, "Gmail read permission was not granted; reconnect Google")
     token = await _access_token(db, uid, "google")
-    return await _api_get(f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{message_id}",
-                          token, {"format": "metadata", "metadataHeaders": ["From", "To", "Subject", "Date"]})
+    return await _gmail_message_text(token, message_id)
 
 
 @router.get("/google/calendar/events")
@@ -416,7 +453,7 @@ CHAT_READ_TOOLS = [
         "type": "function",
         "function": {
             "name": "google_gmail_get",
-            "description": "Read metadata for one Gmail message by its message ID. Read-only.",
+            "description": "Read the headers and plain-text body of one Gmail message by its message ID. Read-only.",
             "parameters": {"type": "object", "properties": {
                 "message_id": {"type": "string", "minLength": 1, "maxLength": 256},
             }, "required": ["message_id"], "additionalProperties": False},
@@ -468,10 +505,7 @@ async def execute_chat_read_tool(db: AsyncSession, uid: str, tool_name: str, arg
         if "https://www.googleapis.com/auth/gmail.readonly" not in row.scopes:
             raise HTTPException(403, "Gmail read scope is not connected")
         token = await _access_token(db, uid, "google")
-        return await _api_get(
-            f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{message_id}", token,
-            {"format": "metadata", "metadataHeaders": ["From", "To", "Subject", "Date"]},
-        )
+        return await _gmail_message_text(token, message_id)
     if tool_name == "google_calendar_list":
         row = await _credential(db, uid, "google")
         if "https://www.googleapis.com/auth/calendar.events" not in row.scopes:
