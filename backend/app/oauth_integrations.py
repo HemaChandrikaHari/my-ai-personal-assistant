@@ -17,18 +17,19 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.auth import current_user
 from app.db import OAuthCredential, OAuthState, get_db
 
 router = APIRouter(prefix="/api/v1", tags=["connected-apps"])
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
-GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
-GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "")
-TODOIST_CLIENT_ID = os.getenv("TODOIST_CLIENT_ID", "")
-TODOIST_CLIENT_SECRET = os.getenv("TODOIST_CLIENT_SECRET", "")
-TODOIST_REDIRECT_URI = os.getenv("TODOIST_REDIRECT_URI", "")
-TOKEN_ENCRYPTION_KEY = os.getenv("TOKEN_ENCRYPTION_KEY", "")
+FRONTEND_URL = settings.frontend_url.rstrip("/")
+GOOGLE_CLIENT_ID = settings.google_client_id
+GOOGLE_CLIENT_SECRET = settings.google_client_secret
+GOOGLE_REDIRECT_URI = settings.google_redirect_uri
+TODOIST_CLIENT_ID = settings.todoist_client_id
+TODOIST_CLIENT_SECRET = settings.todoist_client_secret
+TODOIST_REDIRECT_URI = settings.todoist_redirect_uri
+TOKEN_ENCRYPTION_KEY = settings.token_encryption_key
 
 GOOGLE_SCOPES = [
     "openid",
