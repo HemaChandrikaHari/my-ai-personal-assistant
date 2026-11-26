@@ -2,6 +2,7 @@ import logging, os
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 from fastapi import FastAPI, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,7 +25,19 @@ parsed = urlparse(BLUETICKS_URL)
 if parsed.scheme != "https" or parsed.hostname != "api.blueticks.co":
     raise RuntimeError("Blueticks URL must be https://api.blueticks.co/mcp")
 
-app = FastAPI(title="My AI Personal Assistant", version="0.2.0")
+app = FastAPI(title="My AI Personal Assistant", version="0.2.1")
+
+# Explicit origins only: never reflect arbitrary origins or enable credentialed wildcard CORS.
+CORS_ORIGINS = [origin.strip() for origin in os.getenv(
+    "CORS_ORIGINS", "http://localhost:3000"
+).split(",") if origin.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-User-ID"],
+)
 
 class ApprovalIn(BaseModel):
     integration_id: str = "blueticks_whatsapp"
