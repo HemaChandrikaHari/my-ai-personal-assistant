@@ -16,13 +16,13 @@ from app.db import Base, engine, SessionLocal, get_db, Integration, Grant, Appro
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 log = logging.getLogger("assistant")
-APP_ENV = os.getenv("APP_ENV", "development")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-BLUETICKS_URL = os.getenv("BLUETICKS_MCP_URL", "https://api.blueticks.co/mcp")
-BLUETICKS_TOKEN = os.getenv("BLUETICKS_BEARER_TOKEN", "")
-READ_TOOLS = set(filter(None, os.getenv("BLUETICKS_READ_ONLY_TOOLS", "").split(",")))
-SEND_TOOLS = set(filter(None, os.getenv("BLUETICKS_SEND_TOOLS", "").split(",")))
+APP_ENV = settings.app_env
+OPENAI_API_KEY = settings.openai_api_key or ""
+OPENAI_MODEL = settings.openai_model
+BLUETICKS_URL = settings.blueticks_mcp_url
+BLUETICKS_TOKEN = settings.blueticks_bearer_token
+READ_TOOLS = set(filter(None, settings.blueticks_read_only_tools.split(",")))
+SEND_TOOLS = set(filter(None, settings.blueticks_send_tools.split(",")))
 if READ_TOOLS & SEND_TOOLS:
     raise RuntimeError("Blueticks read-only and send tool allowlists must not overlap")
 parsed = urlparse(BLUETICKS_URL)
@@ -33,9 +33,7 @@ app = FastAPI(title="My AI Personal Assistant", version="0.3.0")
 app.include_router(oauth_router)
 
 # Explicit origins only: never reflect arbitrary origins or enable credentialed wildcard CORS.
-CORS_ORIGINS = [origin.strip() for origin in os.getenv(
-    "CORS_ORIGINS", "http://localhost:3000"
-).split(",") if origin.strip()]
+CORS_ORIGINS = [origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
