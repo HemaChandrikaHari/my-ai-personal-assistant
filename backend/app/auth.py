@@ -1,13 +1,14 @@
-import os
 import jwt
 from jwt import PyJWKClient
 from fastapi import Header, HTTPException
 
-APP_ENV = os.getenv("APP_ENV", "development").lower()
-JWT_SECRET = os.getenv("JWT_SECRET", "")
-OIDC_ISSUER = os.getenv("OIDC_ISSUER", "")
-OIDC_AUDIENCE = os.getenv("OIDC_AUDIENCE", "")
-OIDC_JWKS_URL = os.getenv("OIDC_JWKS_URL", "")
+from app.config import settings
+
+APP_ENV = settings.app_env.lower()
+JWT_SECRET = settings.jwt_secret
+OIDC_ISSUER = settings.oidc_issuer or ""
+OIDC_AUDIENCE = settings.oidc_audience or ""
+OIDC_JWKS_URL = settings.oidc_jwks_url or ""
 _jwks_client = PyJWKClient(OIDC_JWKS_URL, cache_keys=True) if OIDC_JWKS_URL else None
 
 
