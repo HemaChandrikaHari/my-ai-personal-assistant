@@ -1,4 +1,5 @@
-import asyncio\nimport jwt
+import asyncio
+import jwt
 from jwt import PyJWKClient
 from fastapi import Header, HTTPException
 
