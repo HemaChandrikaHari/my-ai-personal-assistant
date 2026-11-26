@@ -8,7 +8,7 @@ TOKEN = os.getenv("ASSISTANT_BACKEND_TOKEN", "")
 APP_ENV = os.getenv("APP_ENV", "development").lower()
 USER_ID = os.getenv("ASSISTANT_USER_ID", "")
 TRANSPORT = os.getenv("MCP_TRANSPORT", "stdio")
-mcp = FastMCP("My AI Personal Assistant")
+mcp = FastMCP("My AI Personal Assistant", host="0.0.0.0", port=int(os.getenv("MCP_PORT", "8001")) )
 
 
 def headers():
