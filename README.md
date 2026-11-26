@@ -22,6 +22,18 @@ The existing endpoint remains https://api.blueticks.co/mcp. Discovery is explici
 ## Assistant chat
 The chat endpoint supports a bounded OpenAI function-calling loop for explicitly allowlisted, discovered Blueticks read-only tools. Users must first discover capabilities, configure exact tool names in BLUETICKS_READ_ONLY_TOOLS, and approve the read scope. The model cannot automatically invoke write/send tools. Tool results are treated as untrusted input and truncated before being returned to the model.
 
+## Google and Todoist OAuth
+
+The API includes per-user OAuth connection flows for Google and Todoist. Configure the provider client IDs/secrets and exact callback URLs in `.env`, and generate a Fernet encryption key for `TOKEN_ENCRYPTION_KEY` (for example, with Python's `Fernet.generate_key()`). Keep the encryption key stable and back it up securely: losing it makes stored tokens unreadable. Never commit the resulting values.
+
+Register these exact local callback URLs in each provider console:
+- Google: `http://localhost:8000/api/v1/oauth/google/callback`
+- Todoist: `http://localhost:8000/api/v1/oauth/todoist/callback`
+
+Google OAuth requests Gmail read-only and Calendar event access. Todoist requests `data:read_write`; users can choose read-only access if offered by Todoist, in which case task creation is rejected by the API. The backend encrypts access/refresh tokens at rest, stores hashed one-time OAuth state for ten minutes, refreshes expiring tokens, and supports disconnecting local credentials. Provider credentials must be configured by the owner; the code cannot register OAuth apps or accept consent on their behalf.
+
+API routes: `GET /api/v1/connections`, `GET /api/v1/oauth/{google|todoist}/start`, `GET /api/v1/google/gmail/messages`, `GET /api/v1/google/calendar/events`, `POST /api/v1/google/calendar/events`, `GET /api/v1/todoist/tasks`, `POST /api/v1/todoist/tasks`, and `DELETE /api/v1/connections/{google|todoist}`. Write endpoints perform the specific requested operation directly; keep them behind an explicit user action/confirmation in any AI workflow.
+
 ## ChatGPT MCP
 The restricted bridge is in mcp-server/server.py. Run it with docker compose --profile mcp up --build mcp-server after supplying a short-lived, user-scoped ASSISTANT_BACKEND_TOKEN. The bridge exposes health, integration listing and assistant chat only. Do not share one backend token among multiple users.
 
