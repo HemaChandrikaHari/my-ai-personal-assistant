@@ -1,4 +1,5 @@
-from cryptography.fernet import Fernet, InvalidToken\nfrom pydantic import model_validator
+from cryptography.fernet import Fernet
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
