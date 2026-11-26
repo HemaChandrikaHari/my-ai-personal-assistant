@@ -1,5 +1,21 @@
-# ChatGPT MCP bridge
+# MCP bridge
 
-Run with ASSISTANT_API_URL and a short-lived, user-scoped ASSISTANT_BACKEND_TOKEN supplied at runtime, then run python server.py.
+The bridge exposes a small MCP surface for Codex and ChatGPT Desktop: backend health, integration status, connected account status, and assistant chat.
 
-This bridge exposes health, integration listing and assistant chat only. It does not expose arbitrary Blueticks tool invocation. The bearer token must represent one backend user; do not share one privileged token across ChatGPT users. For multi-user deployment, implement OAuth/OIDC identity mapping and per-user token exchange before publishing the MCP endpoint. The backend remains the authorization source of truth.
+## Local Codex (recommended)
+
+Use stdio transport and a local development identity. Follow [the Codex setup guide](../docs/CODEX_SETUP.md). The development identity works only while the backend has `APP_ENV=development`; production rejects `X-User-ID`.
+
+## Optional local HTTP transport
+
+Run with Docker Compose:
+
+```bash
+docker compose --profile mcp up --build mcp-server
+```
+
+This binds Streamable HTTP to localhost through Docker's port mapping. It uses the local development identity by default. Do not publish this unauthenticated HTTP bridge to the internet.
+
+## Production
+
+For production, configure a short-lived, user-scoped `ASSISTANT_BACKEND_TOKEN` issued by your OIDC identity provider, set `APP_ENV=production`, and put the MCP bridge behind an authenticated transport/reverse proxy. The backend remains the authorization source of truth. Do not share one privileged backend token across multiple users.
