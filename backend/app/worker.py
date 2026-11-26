@@ -1,16 +1,16 @@
 """Minimal Redis queue worker. Jobs must be idempotent; retries are bounded."""
 import asyncio
 import json
-import os
 import time
 import logging
 import redis.asyncio as redis
+from app.config import settings
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("assistant.worker")
 
 async def main():
-    client = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True)
+    client = redis.from_url(settings.redis_url, decode_responses=True)
     while True:
         item = await client.blpop("assistant:jobs", timeout=5)
         if not item:
