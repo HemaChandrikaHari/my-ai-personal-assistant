@@ -18,6 +18,7 @@ def test_production_rejects_missing_oidc_configuration():
 def test_production_accepts_complete_oidc_and_encryption_configuration():
     settings = Settings(
         app_env="production",
+        frontend_url="https://assistant.example.com",
         oidc_issuer="https://issuer.example.com/",
         oidc_audience="assistant-api",
         oidc_jwks_url="https://issuer.example.com/.well-known/jwks.json",
