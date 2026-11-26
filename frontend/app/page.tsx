@@ -56,7 +56,7 @@ export default function Home() {
     const connected = query.get("connected");
     const oauthError = query.get("oauth_error");
     if (connected) setAnswer(connected + " account connected successfully.");
-    if (oauthError) setAnswer(connected + " connection was not completed.");
+    if (oauthError) setAnswer(oauthError + " connection was not completed.");
     void refresh();
   }, []);
 
@@ -242,7 +242,7 @@ export default function Home() {
       {providerData && <pre className="answer" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{providerData}</pre>}
       <div className="integration"><div><b>Create a Todoist task</b><p>This action writes to your connected Todoist account.</p></div></div>
       <input placeholder="Task name" value={taskContent} onChange={event => setTaskContent(event.target.value)} />
-      <button disabled={!connections.find(x => x.provider === "todoist")?.connected || !taskContent.trim() || !!busy}
+      <button disabled={!connections.find(x => x.provider === "todoist")?.connected || !connections.find(x => x.provider === "todoist")?.scopes.includes("data:read_write") || !taskContent.trim() || !!busy}
         onClick={createTask}>Create Todoist task</button>
       <div className="integration"><div><b>Create a Calendar event</b><p>Review the details and confirm before creating.</p></div></div>
       <input placeholder="Event title" value={eventSummary} onChange={event => setEventSummary(event.target.value)} />
