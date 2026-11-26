@@ -1,4 +1,4 @@
-import jwt
+import asyncio\nimport jwt
 from jwt import PyJWKClient
 from fastapi import Header, HTTPException
 
@@ -21,7 +21,7 @@ async def current_user(authorization: str | None = Header(default=None),
     token = authorization.split(" ", 1)[1].strip()
     try:
         if OIDC_ISSUER and OIDC_AUDIENCE and _jwks_client:
-            signing_key = _jwks_client.get_signing_key_from_jwt(token).key
+            signing_key = (await asyncio.to_thread(_jwks_client.get_signing_key_from_jwt, token)).key
             claims = jwt.decode(
                 token, signing_key, algorithms=["RS256"], issuer=OIDC_ISSUER,
                 audience=OIDC_AUDIENCE,
