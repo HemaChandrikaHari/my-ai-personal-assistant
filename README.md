@@ -17,22 +17,25 @@ Development startup creates tables for convenience. For production, run Alembic 
 - py -m alembic current
 
 ## Blueticks
-The existing endpoint remains https://api.blueticks.co/mcp. Discovery is explicit and does not grant access. Tool invocation requires a separately approved read, write or send scope. Set BLUETICKS_READ_ONLY_TOOLS and BLUETICKS_SEND_TOOLS to exact tool names after inspecting capabilities; do not guess tool names. The AI chat tool loop exposes only discovered tools on the read-only allowlist and only after that user has approved the read scope. It never automatically invokes write or send tools. Direct tool invocation still requires the corresponding per-user scope. Unknown tools default to write permission. Credentials are read from runtime environment only; use AWS Secrets Manager in deployment. Existing Blueticks credentials are not stored in this repository or copied from ChatGPT's separate connection.
+
+The existing endpoint remains https://api.blueticks.co/mcp. Connect Blueticks from the dashboard using OAuth 2.0 authorization code + S256 PKCE and dynamic client registration. The backend encrypts access/refresh tokens at rest and refreshes expired access tokens. The local callback is http://localhost:8000/api/v1/oauth/blueticks/callback (configured by BLUETICKS_REDIRECT_URI); production must set an HTTPS callback. Blueticks dynamic client registration is automatic, so no separate OAuth app registration is needed. The WhatsApp number must already be linked to the user's Blueticks account.
+
+OAuth consent is separate from this app's internal tool permissions. Discovery is explicit and does not grant access. Tool invocation requires a separately approved per-user read, write or send scope. Set BLUETICKS_READ_ONLY_TOOLS and BLUETICKS_SEND_TOOLS to exact tool names only after inspecting capabilities; do not guess tool names. The AI chat tool loop exposes only discovered tools on the read-only allowlist after the user approves read access. It never automatically invokes write or send tools. Unknown tools default to write permission. Existing credentials from ChatGPT's separate Blueticks connection are not copied into this project.
 
 ## Assistant chat
 The chat endpoint supports a bounded OpenAI function-calling loop for explicitly allowlisted, discovered Blueticks read-only tools and connected Google/Todoist read tools. Blueticks users must first discover capabilities, configure exact tool names in BLUETICKS_READ_ONLY_TOOLS, and approve the read scope. Google/Todoist read tools are offered only when the user has connected the account and the provider granted the corresponding read scope. The model cannot automatically invoke write/send tools. Tool results are treated as untrusted input and truncated before being returned to the model.
 
-## Google and Todoist OAuth
+## Google, Todoist and Blueticks OAuth
 
-The API includes per-user OAuth connection flows for Google and Todoist. Configure the provider client IDs/secrets and exact callback URLs in `.env`, and generate a Fernet encryption key for `TOKEN_ENCRYPTION_KEY` (for example, with Python's `Fernet.generate_key()`). Keep the encryption key stable and back it up securely: losing it makes stored tokens unreadable. Never commit the resulting values.
+The API includes per-user OAuth connection flows for Google, Todoist and Blueticks. Configure the provider client IDs/secrets and exact callback URLs in `.env`, and generate a Fernet encryption key for `TOKEN_ENCRYPTION_KEY` (for example, with Python's `Fernet.generate_key()`). Keep the encryption key stable and back it up securely: losing it makes stored tokens unreadable. Never commit the resulting values.
 
-Register these exact local callback URLs in each provider console:
+Register these exact local callback URLs in each provider console (Blueticks uses dynamic client registration automatically):
 - Google: `http://localhost:8000/api/v1/oauth/google/callback`
 - Todoist: `http://localhost:8000/api/v1/oauth/todoist/callback`
 
-Google OAuth requests Gmail read-only and Calendar event access. Todoist requests `data:read_write`; users can choose read-only access if offered by Todoist, in which case task creation is rejected by the API. The backend encrypts access/refresh tokens at rest, stores hashed one-time OAuth state for ten minutes, refreshes expiring tokens, and supports disconnecting local credentials. Provider credentials must be configured by the owner; the code cannot register OAuth apps or accept consent on their behalf.
+Google OAuth requests Gmail read-only and Calendar event access. Todoist requests `data:read_write`; users can choose read-only access if offered by Todoist, in which case task creation is rejected by the API. The backend encrypts access/refresh tokens at rest, stores hashed one-time OAuth state for ten minutes, refreshes expiring tokens, and supports disconnecting local credentials. Google and Todoist OAuth app credentials must be configured by the owner. Blueticks uses dynamic client registration, but the owner must still sign in and approve the OAuth consent screen.
 
-API routes: `GET /api/v1/connections`, `POST /api/v1/jobs/refresh-connection`, `GET /api/v1/oauth/{google|todoist}/start`, `GET /api/v1/google/gmail/messages`, `GET /api/v1/google/gmail/messages/{message_id}`, `GET /api/v1/google/calendar/events`, `POST /api/v1/google/calendar/events`, `GET /api/v1/todoist/tasks`, `POST /api/v1/todoist/tasks`, and `DELETE /api/v1/connections/{google|todoist}`. Write endpoints perform the specific requested operation directly; keep them behind an explicit user action/confirmation in any AI workflow.
+API routes: `GET /api/v1/connections`, `POST /api/v1/jobs/refresh-connection`, `GET /api/v1/oauth/{google|todoist|blueticks}/start`, `GET /api/v1/google/gmail/messages`, `GET /api/v1/google/gmail/messages/{message_id}`, `GET /api/v1/google/calendar/events`, `POST /api/v1/google/calendar/events`, `GET /api/v1/todoist/tasks`, `POST /api/v1/todoist/tasks`, and `DELETE /api/v1/connections/{google|todoist|blueticks}`. Write endpoints perform the specific requested operation directly; keep them behind an explicit user action/confirmation in any AI workflow.
 
 ## Codex and ChatGPT Desktop MCP
 The MCP bridge is in `mcp-server/server.py`. For local Codex, use stdio transport and the development-only identity described in [docs/CODEX_SETUP.md](docs/CODEX_SETUP.md). This avoids publishing an unauthenticated MCP endpoint. The bridge exposes backend health, integration status, connected-account status and assistant chat.
@@ -54,6 +57,6 @@ The Terraform directory is a foundation for VPC, ECR, ECS cluster, encrypted RDS
 ## Current limitations
 - OIDC RS256 issuer/audience/JWKS validation is implemented for externally issued access tokens. Interactive login, account provisioning, provider-specific token revocation and identity-provider administration remain external setup tasks.
 - The Redis worker handles queued OAuth token refresh and periodic expired-state cleanup with bounded retries, a dead-letter list, and recovery of in-flight jobs after process restarts when Redis retains its data. User-facing reminder/digest scheduling and Redis durability/restore validation remain outstanding.
-- Live Blueticks discovery/tool execution and Google/Todoist API access require the owner's runtime credentials, OAuth app registrations, user consent and exact tool-scope allowlists.
+- Live Blueticks discovery/tool execution still requires the owner to complete Blueticks OAuth consent in the dashboard and configure exact tool-scope allowlists. Google/Todoist API access requires their OAuth consent and provider app configuration.
 - AWS infrastructure has not been applied. Docker and Terraform CLIs were not available in the current development environment.
 - Configure TLS, WAF, rate limits, backups, restore tests, monitoring, secrets injection and security scans before production use.

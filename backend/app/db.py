@@ -70,3 +70,19 @@ class OAuthState(Base):
     user_id: Mapped[str] = mapped_column(String(160), index=True)
     provider: Mapped[str] = mapped_column(String(32))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class BlueticksOAuthState(Base):
+    __tablename__ = "blueticks_oauth_states"
+    state_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(160), index=True)
+    client_id: Mapped[str] = mapped_column(String(500))
+    code_verifier_encrypted: Mapped[str] = mapped_column(String(1024))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class BlueticksOAuthClient(Base):
+    __tablename__ = "blueticks_oauth_clients"
+    user_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    client_id: Mapped[str] = mapped_column(String(500))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

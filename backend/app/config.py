@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
     blueticks_mcp_url: str = "https://api.blueticks.co/mcp"
     blueticks_bearer_token: str = ""
+    blueticks_redirect_uri: str = "http://localhost:8000/api/v1/oauth/blueticks/callback"
     blueticks_read_only_tools: str = ""
     blueticks_send_tools: str = ""
     blueticks_secret_arn: str | None = None
@@ -53,7 +54,7 @@ class Settings(BaseSettings):
                 Fernet(self.token_encryption_key.encode("ascii"))
             except (ValueError, UnicodeEncodeError):
                 raise ValueError("TOKEN_ENCRYPTION_KEY must be a valid Fernet key")
-            for redirect_uri in (self.google_redirect_uri, self.todoist_redirect_uri):
+            for redirect_uri in (self.google_redirect_uri, self.todoist_redirect_uri, self.blueticks_redirect_uri):
                 if redirect_uri and not redirect_uri.startswith("https://"):
                     raise ValueError("Production OAuth redirect URIs must use HTTPS")
         if self.blueticks_mcp_url != "https://api.blueticks.co/mcp":

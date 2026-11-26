@@ -19,6 +19,7 @@ def test_production_accepts_complete_oidc_and_encryption_configuration():
     settings = Settings(
         app_env="production",
         frontend_url="https://assistant.example.com",
+        blueticks_redirect_uri="https://assistant.example.com/api/v1/oauth/blueticks/callback",
         oidc_issuer="https://issuer.example.com/",
         oidc_audience="assistant-api",
         oidc_jwks_url="https://issuer.example.com/.well-known/jwks.json",

@@ -12,7 +12,7 @@ from openai import AsyncOpenAI
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 from app.config import settings
-from app.oauth_integrations import router as oauth_router, CHAT_READ_TOOLS, execute_chat_read_tool
+from app.oauth_integrations import router as oauth_router, CHAT_READ_TOOLS, execute_chat_read_tool, blueticks_access_token
 from app.auth import current_user
 from app.db import Base, engine, SessionLocal, get_db, Integration, Grant, Approval, Audit, OAuthCredential
 
@@ -69,10 +69,12 @@ async def grant_exists(db, uid, iid, scope):
         Grant.user_id == uid, Grant.integration_id == iid, Grant.scope == scope))
     return result.scalar_one_or_none() is not None
 
-async def mcp_headers():
+async def mcp_headers(db: AsyncSession, uid: str):
     headers = {"Accept": "application/json, text/event-stream"}
     if BLUETICKS_TOKEN:
         headers["Authorization"] = "Bearer " + BLUETICKS_TOKEN
+    else:
+        headers["Authorization"] = "Bearer " + await blueticks_access_token(db, uid)
     return headers
 
 @app.on_event("startup")
@@ -130,9 +132,15 @@ async def integrations(uid: str = Depends(current_user), db: AsyncSession = Depe
     for item in rows:
         scopes = (await db.execute(select(Grant.scope).where(
             Grant.user_id == uid, Grant.integration_id == item.id))).scalars().all()
+        authenticated = False
+        if item.id == "blueticks_whatsapp":
+            authenticated = (await db.execute(select(OAuthCredential.id).where(
+                OAuthCredential.user_id == uid, OAuthCredential.provider == "blueticks"
+            ))).scalar_one_or_none() is not None
         out.append({"id": item.id, "name": item.name, "discovered": bool(item.tools),
-                    "connected": bool(item.tools and scopes), "capabilities": item.tools or [],
-                    "approved_scopes": list(scopes), "approval_required": True})
+                    "authenticated": authenticated, "connected": bool(authenticated and item.tools and scopes),
+                    "capabilities": item.tools or [], "approved_scopes": list(scopes),
+                    "approval_required": True})
     return out
 
 @app.get("/api/v1/approval-requests")
@@ -177,7 +185,7 @@ async def decide(request_id: int, body: DecisionIn, uid: str = Depends(current_u
 async def discover(uid: str = Depends(current_user), db: AsyncSession = Depends(get_db)):
     item = await db.get(Integration, "blueticks_whatsapp")
     try:
-        async with streamablehttp_client(BLUETICKS_URL, headers=await mcp_headers()) as (read, write, _):
+        async with streamablehttp_client(BLUETICKS_URL, headers=await mcp_headers(db, uid)) as (read, write, _):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 found = await session.list_tools()
@@ -204,7 +212,7 @@ async def call_tool(integration_id: str, tool_name: str, body: ToolIn,
     if not await grant_exists(db, uid, integration_id, scope):
         raise HTTPException(403, f"Approved {scope} permission required")
     try:
-        async with streamablehttp_client(BLUETICKS_URL, headers=await mcp_headers()) as (read, write, _):
+        async with streamablehttp_client(BLUETICKS_URL, headers=await mcp_headers(db, uid)) as (read, write, _):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 result = await session.call_tool(tool_name, arguments=body.arguments)
@@ -214,9 +222,9 @@ async def call_tool(integration_id: str, tool_name: str, body: ToolIn,
         log.warning("MCP tool call failed: %s", type(exc).__name__)
         raise HTTPException(502, "Blueticks tool call failed")
 
-async def execute_approved_read_tool(tool_name: str, arguments: dict):
+async def execute_approved_read_tool(db: AsyncSession, uid: str, tool_name: str, arguments: dict):
     """Execute one explicitly allowlisted read-only Blueticks tool."""
-    async with streamablehttp_client(BLUETICKS_URL, headers=await mcp_headers()) as (read, write, _):
+    async with streamablehttp_client(BLUETICKS_URL, headers=await mcp_headers(db, uid)) as (read, write, _):
         async with ClientSession(read, write) as session:
             await session.initialize()
             result = await session.call_tool(tool_name, arguments=arguments)
@@ -311,7 +319,7 @@ async def chat(body: ChatIn, uid: str = Depends(current_user), db: AsyncSession 
                         else:
                             if tool_name not in READ_TOOLS:
                                 raise ValueError("Tool is not allowlisted for read-only use")
-                            tool_output = await execute_approved_read_tool(tool_name, arguments)
+                            tool_output = await execute_approved_read_tool(db, uid, tool_name, arguments)
                             resource = "blueticks_whatsapp"
                         await log_action(
                             db, uid, "read_tool_called", resource,

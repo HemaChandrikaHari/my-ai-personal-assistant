@@ -8,7 +8,7 @@ const USER = process.env.NEXT_PUBLIC_ENABLE_DEV_AUTH === "true"
 
 type Integration = {
   id: string; name: string; discovered: boolean; connected: boolean;
-  capabilities: { name: string; description: string }[]; approved_scopes: string[];
+  capabilities: { name: string; description: string }[]; approved_scopes: string[]; authenticated?: boolean;
 };
 type Approval = { id: number; integration_id: string; scope: string; status: string };
 type Connection = { provider: string; connected: boolean; scopes: string[] };
@@ -273,7 +273,13 @@ export default function Home() {
       {items.map(item => <article className="integration" key={item.id}>
         <div><b>{item.name}</b><p>{item.connected ? "Approved connection" : "Not connected"} · {item.capabilities.length} discovered tools · Approved scopes: {item.approved_scopes.join(", ") || "none"}</p></div>
       </article>)}
-      <button onClick={discover}>Discover Blueticks tools</button>
+      <p>{items.find(x => x.id === "blueticks_whatsapp")?.authenticated ? "Blueticks OAuth authorized" : "Blueticks account not authorized yet"}</p>
+      <div className="scopes">
+        <button disabled={!!busy} onClick={() => connect("blueticks")}>Connect Blueticks (OAuth)</button>
+        <button onClick={discover} disabled={!items.find(x => x.id === "blueticks_whatsapp")?.authenticated}>Discover Blueticks tools</button>
+        {items.find(x => x.id === "blueticks_whatsapp")?.authenticated &&
+          <button className="secondary" disabled={!!busy} onClick={() => disconnect("blueticks")}>Disconnect Blueticks</button>}
+      </div>
       <div className="scopes">
         {["read", "write", "send"].map(scope =>
           <button className="secondary" key={scope} onClick={() => request(scope)}>Request {scope} access</button>)}

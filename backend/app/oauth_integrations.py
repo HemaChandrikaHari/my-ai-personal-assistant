@@ -6,6 +6,7 @@ stored hashed, tied to the initiating user, and expires after ten minutes.
 import base64
 import hashlib
 import os
+import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
@@ -20,9 +21,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.auth import current_user
-from app.db import OAuthCredential, OAuthState, get_db
+from app.db import OAuthCredential, OAuthState, BlueticksOAuthState, BlueticksOAuthClient, get_db
 
 router = APIRouter(prefix="/api/v1", tags=["connected-apps"])
+log = logging.getLogger("assistant.oauth")
 FRONTEND_URL = settings.frontend_url.rstrip("/")
 GOOGLE_CLIENT_ID = settings.google_client_id
 GOOGLE_CLIENT_SECRET = settings.google_client_secret
@@ -30,6 +32,12 @@ GOOGLE_REDIRECT_URI = settings.google_redirect_uri
 TODOIST_CLIENT_ID = settings.todoist_client_id
 TODOIST_CLIENT_SECRET = settings.todoist_client_secret
 TODOIST_REDIRECT_URI = settings.todoist_redirect_uri
+BLUETICKS_REDIRECT_URI = settings.blueticks_redirect_uri
+BLUETICKS_MCP_URL = settings.blueticks_mcp_url
+BLUETICKS_AUTH_BASE = "https://api.blueticks.co/mcp/auth"
+BLUETICKS_TOKEN_URL = "https://api.blueticks.co/mcp/auth/token"
+BLUETICKS_REGISTER_URL = "https://api.blueticks.co/mcp/auth/register"
+BLUETICKS_SCOPES = ["openid", "email", "profile", "mcp:read", "mcp:write"]
 TOKEN_ENCRYPTION_KEY = settings.token_encryption_key
 
 GOOGLE_SCOPES = [
@@ -129,7 +137,7 @@ async def list_connections(uid: str = Depends(current_user), db: AsyncSession = 
     return [
         {"provider": provider, "connected": provider in by_provider,
          "scopes": by_provider[provider].scopes.split() if provider in by_provider else []}
-        for provider in ("google", "todoist")
+        for provider in ("google", "todoist", "blueticks")
     ]
 
 
@@ -216,6 +224,135 @@ async def _save_credential(db: AsyncSession, uid: str, provider: str, token_data
             expires_at=expires_at,
         ))
     await db.commit()
+
+
+@router.get("/oauth/blueticks/start")
+async def blueticks_start(uid: str = Depends(current_user), db: AsyncSession = Depends(get_db)):
+    """Register this local client and begin Blueticks OAuth authorization with S256 PKCE."""
+    _cipher()
+    if not BLUETICKS_REDIRECT_URI.startswith(("http://localhost", "http://127.0.0.1", "https://")):
+        raise HTTPException(503, "Blueticks redirect URI must use localhost for development or HTTPS")
+    verifier = secrets.token_urlsafe(64)
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii")).digest()).rstrip(b"=").decode("ascii")
+    existing_client = await db.get(BlueticksOAuthClient, uid)
+    if existing_client:
+        client_id = existing_client.client_id
+    else:
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.post(BLUETICKS_REGISTER_URL, json={
+                "client_name": "My AI Personal Assistant",
+                "redirect_uris": [BLUETICKS_REDIRECT_URI],
+                "grant_types": ["authorization_code", "refresh_token"],
+                "response_types": ["code"],
+                "token_endpoint_auth_method": "none",
+                "application_type": "native",
+            })
+        if response.is_error:
+            raise HTTPException(502, f"Blueticks OAuth client registration failed ({response.status_code})")
+        registration = response.json()
+        client_id = registration.get("client_id")
+        if not isinstance(client_id, str) or not client_id:
+            raise HTTPException(502, "Blueticks registration did not return a client_id")
+    raw_state = secrets.token_urlsafe(32)
+    db.add(BlueticksOAuthState(
+        state_hash=hashlib.sha256(raw_state.encode()).hexdigest(),
+        user_id=uid, client_id=client_id, code_verifier_encrypted=_encrypt(verifier),
+        expires_at=_utcnow() + timedelta(minutes=10),
+    ))
+    await db.commit()
+    params = {
+        "client_id": client_id, "redirect_uri": BLUETICKS_REDIRECT_URI,
+        "response_type": "code", "scope": " ".join(BLUETICKS_SCOPES),
+        "state": raw_state, "code_challenge": challenge,
+        "code_challenge_method": "S256", "resource": BLUETICKS_MCP_URL,
+    }
+    return {"authorization_url": BLUETICKS_AUTH_BASE + "?" + urlencode(params)}
+
+
+async def _consume_blueticks_state(db: AsyncSession, raw_state: str):
+    if not raw_state or len(raw_state) > 256:
+        raise HTTPException(400, "Invalid Blueticks OAuth state")
+    digest = hashlib.sha256(raw_state.encode()).hexdigest()
+    now = _utcnow()
+    result = await db.execute(delete(BlueticksOAuthState).where(
+        BlueticksOAuthState.state_hash == digest,
+        BlueticksOAuthState.expires_at >= now,
+    ).returning(BlueticksOAuthState.user_id, BlueticksOAuthState.client_id,
+                BlueticksOAuthState.code_verifier_encrypted))
+    row = result.one_or_none()
+    if not row:
+        await db.execute(delete(BlueticksOAuthState).where(
+            BlueticksOAuthState.state_hash == digest, BlueticksOAuthState.expires_at < now))
+        await db.commit()
+        raise HTTPException(400, "Blueticks OAuth state is invalid or expired; restart connection")
+    await db.commit()
+    return row[0], row[1], _decrypt(row[2])
+
+
+@router.get("/oauth/blueticks/callback")
+async def blueticks_callback(code: str | None = None, state: str | None = None,
+                             error: str | None = None, db: AsyncSession = Depends(get_db)):
+    if not state:
+        raise HTTPException(400, "Blueticks OAuth state is missing")
+    uid, client_id, verifier = await _consume_blueticks_state(db, state)
+    if error:
+        return RedirectResponse(f"{FRONTEND_URL}/?oauth_error=blueticks")
+    if not code or not verifier:
+        raise HTTPException(400, "Blueticks authorization code or PKCE verifier is missing")
+    async with httpx.AsyncClient(timeout=20) as client:
+        response = await client.post(BLUETICKS_TOKEN_URL, data={
+            "grant_type": "authorization_code", "client_id": client_id,
+            "code": code, "redirect_uri": BLUETICKS_REDIRECT_URI,
+            "code_verifier": verifier, "resource": BLUETICKS_MCP_URL,
+        })
+    if response.is_error:
+        raise HTTPException(502, "Blueticks token exchange failed; restart connection")
+    token_data = response.json()
+    if not token_data.get("access_token"):
+        raise HTTPException(502, "Blueticks did not return an access token")
+    await _save_credential(db, uid, "blueticks", token_data)
+    oauth_client = await db.get(BlueticksOAuthClient, uid)
+    if oauth_client:
+        oauth_client.client_id = client_id
+        oauth_client.updated_at = _utcnow()
+    else:
+        db.add(BlueticksOAuthClient(user_id=uid, client_id=client_id, updated_at=_utcnow()))
+    await db.commit()
+    return RedirectResponse(f"{FRONTEND_URL}/?connected=blueticks")
+
+
+async def blueticks_access_token(db: AsyncSession, uid: str) -> str:
+    row = await _credential(db, uid, "blueticks")
+    if row.expires_at and _aware_utc(row.expires_at) <= _utcnow() + timedelta(seconds=90):
+        refresh_token = _decrypt(row.refresh_token_encrypted)
+        oauth_client = await db.get(BlueticksOAuthClient, uid)
+        if not refresh_token or not oauth_client:
+            raise HTTPException(401, "Blueticks token expired; reconnect the account")
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.post(BLUETICKS_TOKEN_URL, data={
+                "grant_type": "refresh_token", "client_id": oauth_client.client_id,
+                "refresh_token": refresh_token, "resource": BLUETICKS_MCP_URL,
+            })
+        if response.is_error:
+            log.warning("Blueticks refresh failed (%s)", response.status_code)
+            raise HTTPException(401, "Blueticks token refresh failed; reconnect the account")
+        data = response.json()
+        if not data.get("access_token"):
+            raise HTTPException(502, "Blueticks refresh did not return an access token")
+        row.access_token_encrypted = _encrypt(data["access_token"])
+        if data.get("refresh_token"):
+            row.refresh_token_encrypted = _encrypt(data["refresh_token"])
+        row.token_type = data.get("token_type", "Bearer")
+        row.expires_at = _utcnow() + timedelta(seconds=int(data.get("expires_in", 3600)))
+        if data.get("scope"):
+            scopes_value = data["scope"]
+            row.scopes = " ".join(scopes_value) if isinstance(scopes_value, list) else str(scopes_value).replace(",", " ")
+        row.updated_at = _utcnow()
+        await db.commit()
+    token = _decrypt(row.access_token_encrypted)
+    if not token:
+        raise HTTPException(401, "Blueticks access token is unavailable; reconnect the account")
+    return token
 
 
 async def _callback(provider: str, code: str | None, state: str | None, error: str | None, db: AsyncSession):
@@ -442,10 +579,14 @@ async def create_todoist_task(body: TodoistTaskIn, uid: str = Depends(current_us
 @router.delete("/connections/{provider}")
 async def disconnect(provider: str, uid: str = Depends(current_user),
                      db: AsyncSession = Depends(get_db)):
-    if provider not in {"google", "todoist"}:
+    if provider not in {"google", "todoist", "blueticks"}:
         raise HTTPException(404, "Unknown connected provider")
     row = await _credential(db, uid, provider)
     await db.delete(row)
+    if provider == "blueticks":
+        oauth_client = await db.get(BlueticksOAuthClient, uid)
+        if oauth_client:
+            await db.delete(oauth_client)
     await db.commit()
     return {"provider": provider, "connected": False, "message": "Local credentials deleted; revoke app access in provider settings if needed."}
 
