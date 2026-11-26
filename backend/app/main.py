@@ -10,9 +10,9 @@ from openai import AsyncOpenAI
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 from app.config import settings
-from app.oauth_integrations import router as oauth_router
+from app.oauth_integrations import router as oauth_router, CHAT_READ_TOOLS, execute_chat_read_tool
 from app.auth import current_user
-from app.db import Base, engine, SessionLocal, get_db, Integration, Grant, Approval, Audit
+from app.db import Base, engine, SessionLocal, get_db, Integration, Grant, Approval, Audit, OAuthCredential
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 log = logging.getLogger("assistant")
@@ -234,6 +234,22 @@ async def chat(body: ChatIn, uid: str = Depends(current_user), db: AsyncSession 
                         },
                     })
 
+        connected_rows = (await db.execute(
+            select(OAuthCredential).where(OAuthCredential.user_id == uid)
+        )).scalars().all()
+        connected_by_provider = {row.provider: row for row in connected_rows}
+        google_row = connected_by_provider.get("google")
+        if google_row:
+            scopes = set(google_row.scopes.split())
+            if "https://www.googleapis.com/auth/gmail.readonly" in scopes:
+                approved_read_tools.extend(CHAT_READ_TOOLS[:2])
+            if "https://www.googleapis.com/auth/calendar.events" in scopes:
+                approved_read_tools.append(CHAT_READ_TOOLS[2])
+        todoist_row = connected_by_provider.get("todoist")
+        if todoist_row and ({"data:read", "data:read_write"} & set(todoist_row.scopes.split())):
+            approved_read_tools.append(CHAT_READ_TOOLS[3])
+        provider_tool_names = {item["function"]["name"] for item in CHAT_READ_TOOLS}
+
         response = None
         for round_index in range(5):
             request = {"model": OPENAI_MODEL, "messages": messages}
@@ -249,9 +265,8 @@ async def chat(body: ChatIn, uid: str = Depends(current_user), db: AsyncSession 
             messages.append(assistant_message.model_dump(exclude_none=True))
             for tool_call in assistant_message.tool_calls:
                 tool_name = tool_call.function.name
-                if tool_name not in READ_TOOLS or tool_name not in {
-                    item["function"]["name"] for item in approved_read_tools
-                }:
+                allowed_names = {item["function"]["name"] for item in approved_read_tools}
+                if tool_name not in allowed_names:
                     tool_output = "Tool denied: no approved read-only permission."
                 else:
                     try:
@@ -261,13 +276,21 @@ async def chat(body: ChatIn, uid: str = Depends(current_user), db: AsyncSession 
                         arguments = json.loads(arguments_json)
                         if not isinstance(arguments, dict):
                             raise ValueError("Tool arguments must be a JSON object")
-                        tool_output = await execute_approved_read_tool(tool_name, arguments)
+                        if tool_name in provider_tool_names:
+                            result = await execute_chat_read_tool(db, uid, tool_name, arguments)
+                            tool_output = json.dumps(result, ensure_ascii=False)[:20000]
+                            resource = "connected_app"
+                        else:
+                            if tool_name not in READ_TOOLS:
+                                raise ValueError("Tool is not allowlisted for read-only use")
+                            tool_output = await execute_approved_read_tool(tool_name, arguments)
+                            resource = "blueticks_whatsapp"
                         await log_action(
-                            db, uid, "read_tool_called", "blueticks_whatsapp",
+                            db, uid, "read_tool_called", resource,
                             {"tool": tool_name, "scope": "read"},
                         )
                     except Exception as exc:
-                        log.warning("Read-only MCP tool failed: %s", type(exc).__name__)
+                        log.warning("Read-only tool failed: %s", type(exc).__name__)
                         tool_output = "Tool execution failed. No external action was taken."
                 messages.append({
                     "role": "tool",
