@@ -18,6 +18,10 @@ export default function Home() {
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [providerData, setProviderData] = useState("");
+  const [taskContent, setTaskContent] = useState("");
+  const [eventSummary, setEventSummary] = useState("");
+  const [eventStart, setEventStart] = useState("");
+  const [eventEnd, setEventEnd] = useState("");
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [answer, setAnswer] = useState("");
@@ -105,6 +109,44 @@ export default function Home() {
     } finally {
       setBusy("");
     }
+  }
+
+  async function createTask() {
+    if (!taskContent.trim() || !window.confirm("Create this task in your connected Todoist account?")) return;
+    setBusy("todoist-write");
+    try {
+      const response = await fetch(API + "/api/v1/todoist/tasks", {
+        method: "POST", headers: headers(),
+        body: JSON.stringify({ content: taskContent.trim() }),
+      });
+      const data = await response.json();
+      setAnswer(response.ok ? "Todoist task created: " + (data.content || taskContent) :
+        data.detail || "Task creation failed");
+      if (response.ok) setTaskContent("");
+    } catch { setAnswer("Could not reach the backend"); }
+    finally { setBusy(""); }
+  }
+
+  async function createEvent() {
+    if (!eventSummary.trim() || !eventStart || !eventEnd ||
+        !window.confirm("Create this event in your primary Google Calendar?")) return;
+    setBusy("calendar-write");
+    try {
+      const response = await fetch(API + "/api/v1/google/calendar/events", {
+        method: "POST", headers: headers(),
+        body: JSON.stringify({
+          summary: eventSummary.trim(),
+          start: new Date(eventStart).toISOString(),
+          end: new Date(eventEnd).toISOString(),
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+        }),
+      });
+      const data = await response.json();
+      setAnswer(response.ok ? "Calendar event created: " + (data.summary || eventSummary) :
+        data.detail || "Event creation failed");
+      if (response.ok) setEventSummary("");
+    } catch { setAnswer("Could not reach the backend"); }
+    finally { setBusy(""); }
   }
 
   async function discover() {
@@ -198,6 +240,16 @@ export default function Home() {
           onClick={() => loadProviderData("/api/v1/todoist/tasks")}>Load Todoist tasks</button>
       </div>
       {providerData && <pre className="answer" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{providerData}</pre>}
+      <div className="integration"><div><b>Create a Todoist task</b><p>This action writes to your connected Todoist account.</p></div></div>
+      <input placeholder="Task name" value={taskContent} onChange={event => setTaskContent(event.target.value)} />
+      <button disabled={!connections.find(x => x.provider === "todoist")?.connected || !taskContent.trim() || !!busy}
+        onClick={createTask}>Create Todoist task</button>
+      <div className="integration"><div><b>Create a Calendar event</b><p>Review the details and confirm before creating.</p></div></div>
+      <input placeholder="Event title" value={eventSummary} onChange={event => setEventSummary(event.target.value)} />
+      <label>Starts <input type="datetime-local" value={eventStart} onChange={event => setEventStart(event.target.value)} /></label>
+      <label>Ends <input type="datetime-local" value={eventEnd} onChange={event => setEventEnd(event.target.value)} /></label>
+      <button disabled={!connections.find(x => x.provider === "google")?.connected || !eventSummary.trim() || !eventStart || !eventEnd || !!busy}
+        onClick={createEvent}>Create Calendar event</button>
     </section>
 
     <section className="panel">
