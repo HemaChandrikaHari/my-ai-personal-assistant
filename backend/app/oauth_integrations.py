@@ -15,7 +15,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -90,14 +90,25 @@ async def _consume_state(db: AsyncSession, raw: str, provider: str) -> str:
     if not raw or len(raw) > 256:
         raise HTTPException(400, "Invalid OAuth state")
     digest = hashlib.sha256(raw.encode()).hexdigest()
-    state = await db.get(OAuthState, digest)
-    if not state or state.provider != provider or _aware_utc(state.expires_at) < _utcnow():
-        if state:
-            await db.delete(state)
-            await db.commit()
+    now = _utcnow()
+    # Delete-and-return makes the state one-time even when two callbacks race.
+    result = await db.execute(
+        delete(OAuthState).where(
+            OAuthState.state_hash == digest,
+            OAuthState.provider == provider,
+            OAuthState.expires_at >= now,
+        ).returning(OAuthState.user_id)
+    )
+    uid = result.scalar_one_or_none()
+    if not uid:
+        # Remove an expired matching state, but never consume a state for another provider.
+        await db.execute(delete(OAuthState).where(
+            OAuthState.state_hash == digest,
+            OAuthState.provider == provider,
+            OAuthState.expires_at < now,
+        ))
+        await db.commit()
         raise HTTPException(400, "OAuth state is invalid or expired; restart the connection flow")
-    uid = state.user_id
-    await db.delete(state)
     await db.commit()
     return uid
 
@@ -148,6 +159,7 @@ async def todoist_start(uid: str = Depends(current_user), db: AsyncSession = Dep
     params = {
         "client_id": TODOIST_CLIENT_ID,
         "scope": ",".join(TODOIST_SCOPES),
+        "redirect_uri": TODOIST_REDIRECT_URI,
         "state": state,
         "response_type": "code",
     }
@@ -170,6 +182,7 @@ async def _exchange(provider: str, code: str) -> dict:
                 "client_id": TODOIST_CLIENT_ID,
                 "client_secret": TODOIST_CLIENT_SECRET,
                 "code": code,
+                "redirect_uri": TODOIST_REDIRECT_URI,
             })
     if response.is_error:
         raise HTTPException(502, f"{provider.title()} token exchange failed")
