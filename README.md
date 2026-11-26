@@ -34,8 +34,10 @@ Google OAuth requests Gmail read-only and Calendar event access. Todoist request
 
 API routes: `GET /api/v1/connections`, `GET /api/v1/oauth/{google|todoist}/start`, `GET /api/v1/google/gmail/messages`, `GET /api/v1/google/calendar/events`, `POST /api/v1/google/calendar/events`, `GET /api/v1/todoist/tasks`, `POST /api/v1/todoist/tasks`, and `DELETE /api/v1/connections/{google|todoist}`. Write endpoints perform the specific requested operation directly; keep them behind an explicit user action/confirmation in any AI workflow.
 
-## ChatGPT MCP
-The restricted bridge is in mcp-server/server.py. Run it with docker compose --profile mcp up --build mcp-server after supplying a short-lived, user-scoped ASSISTANT_BACKEND_TOKEN. The bridge exposes health, integration listing and assistant chat only. Do not share one backend token among multiple users.
+## Codex and ChatGPT Desktop MCP
+The MCP bridge is in `mcp-server/server.py`. For local Codex, use stdio transport and the development-only identity described in [docs/CODEX_SETUP.md](docs/CODEX_SETUP.md). This avoids publishing an unauthenticated MCP endpoint. The bridge exposes backend health, integration status, connected-account status and assistant chat.
+
+An optional local Streamable HTTP bridge can be started with `docker compose --profile mcp up --build mcp-server` at `http://localhost:8001/mcp`. Do not publish this unauthenticated development bridge to the public internet. Production requires a user-scoped OIDC bearer token and an authenticated transport/reverse proxy; never share one backend token among multiple users.
 
 ## Authentication
 Production API bearer tokens are validated as RS256 JWTs using the configured OIDC issuer, audience and JWKS URL. The stable token subject is the per-user data partition key. Configure your identity provider to issue API access tokens with the expected audience. Local development's X-User-ID bypass is disabled outside APP_ENV=development.
