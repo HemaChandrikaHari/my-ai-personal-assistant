@@ -18,6 +18,31 @@ jobs:
       - run: cd backend && DATABASE_URL=sqlite+aiosqlite:///./ci_migration.db python -m alembic upgrade head
       - name: Build backend container (includes production migrations)
         run: docker build --tag personal-assistant-backend:ci ./backend
+      - name: Run backend container smoke tests
+        shell: bash
+        run: |
+          docker run --detach --name personal-assistant-backend-ci --publish 8000:8000 \
+            --env APP_ENV=development \
+            --env DATABASE_URL=sqlite+aiosqlite:////tmp/assistant-ci.db \
+            --env CORS_ORIGINS=http://localhost:3000 \
+            personal-assistant-backend:ci
+          cleanup() { docker rm --force personal-assistant-backend-ci >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          ready=0
+          for attempt in {1..30}; do
+            if curl --fail --silent http://localhost:8000/ready; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" -ne 1 ]; then
+            docker logs personal-assistant-backend-ci
+            exit 1
+          fi
+          curl --fail --silent http://localhost:8000/health
+          curl --fail --silent --header "X-User-ID: ci-smoke-user" http://localhost:8000/api/v1/integrations
+          curl --fail --silent --header "X-User-ID: ci-smoke-user" http://localhost:8000/api/v1/connections
       - name: Build MCP container
         run: docker build --tag personal-assistant-mcp:ci ./mcp-server
   frontend:
