@@ -1,33 +1,32 @@
 # My AI Personal Assistant
 
-A modular assistant with a FastAPI API, Next.js dashboard, a restricted ChatGPT MCP bridge, per-user integration approvals, and an AWS infrastructure starter.
+A modular assistant with a FastAPI backend, Next.js dashboard, Google Workspace and Todoist OAuth, Blueticks WhatsApp MCP integration, and a local ChatGPT-facing MCP bridge.
 
 ## Local development
-1. Install Docker Desktop with Docker Compose.
-2. Copy .env.example to .env.
-3. Set OPENAI_API_KEY only if you want model chat. Leave BLUETICKS_BEARER_TOKEN empty unless the Blueticks MCP endpoint explicitly requires a bearer token. Never commit .env.
-4. Run docker compose up --build.
-5. Open http://localhost:3000 and check http://localhost:8000/health.
 
-Local Compose deliberately enables a development-only X-User-ID identity. Production requires an HS256 JWT containing sub and exp claims and a JWT_SECRET of at least 32 characters. Replace this bootstrap with a real OIDC identity provider before internet exposure. Set NEXT_PUBLIC_ENABLE_DEV_AUTH=false in production.
+1. Copy `.env.example` to `.env` and configure the provider OAuth credentials and token encryption key.
+2. Start the backend and frontend using the existing local development instructions.
+3. The ChatGPT-facing MCP server can run locally over stdio without an OpenAI API key. See [mcp-server/README.md](mcp-server/README.md).
+4. The MCP bridge calls the existing backend's provider endpoints directly; ChatGPT provides the model and reasoning. It does not call the backend's `/api/v1/chat` endpoint.
 
-## Database migrations
-Development startup creates tables for convenience. For production, run Alembic migrations from the backend directory:
-- py -m alembic upgrade head
-- py -m alembic current
+## ChatGPT MCP bridge
+
+The local bridge is in `mcp-server/server.py`. It exposes account listing, Gmail read, Google Calendar read/write, Todoist read/write, and scoped Blueticks WhatsApp tools. Backend OAuth scopes and explicit WhatsApp grants remain authoritative. Gmail is currently read-only because the configured Google OAuth grant uses `gmail.readonly`; Gmail sending is not exposed. For WhatsApp, discovery does not grant access: read/write/send scopes must be approved separately.
+
+Configure the ChatGPT app to ask for confirmation before all write or send actions. Review the target, recipient and content before approving an action.
+
+**ChatGPT plan limitation:** OpenAI's current documentation lists custom MCP connections with full read/write support for Business and Enterprise/Edu. Pro supports read/fetch access; Free does not currently have the documented custom MCP connection feature. See the [MCP setup guide](mcp-server/README.md) and verify current account/workspace permissions before attempting connection.
+
+The existing dashboard's AI chat endpoint still uses `OPENAI_API_KEY`. It is not used by the ChatGPT MCP bridge. Do not call that endpoint if you want to avoid API usage.
+
+## Identity and security
+
+Local Compose deliberately enables a development-only `X-User-ID` identity. Production requires a validated per-user OIDC identity, TLS, short-lived user-scoped tokens, secrets management, rate limiting, backups, monitoring, and security review. Never expose the local development MCP server or its development identity on the public internet.
 
 ## Blueticks
-The existing endpoint remains https://api.blueticks.co/mcp. Discovery is explicit and does not grant access. Tool invocation requires a separately approved read, write or send scope. Set BLUETICKS_READ_ONLY_TOOLS and BLUETICKS_SEND_TOOLS to exact tool names after inspecting capabilities. Unknown tools default to write permission. Credentials are read from runtime environment only; use AWS Secrets Manager in deployment. Existing Blueticks credentials are not stored in this repository or copied from ChatGPT's separate connection.
 
-## ChatGPT MCP
-The restricted bridge is in mcp-server/server.py. Run it with docker compose --profile mcp up --build mcp-server after supplying a short-lived, user-scoped ASSISTANT_BACKEND_TOKEN. The bridge exposes health, integration listing and assistant chat only. Do not share one backend token among multiple users.
+The existing endpoint remains `https://api.blueticks.co/mcp`. Discovery is explicit and does not grant access. Tool invocation requires separately approved read, write or send scope. Unknown tools default to write permission. Credentials are read from runtime environment or encrypted OAuth storage; never commit secrets.
 
 ## AWS
-The Terraform directory is a starter for VPC, ECR, ECS cluster, encrypted RDS with AWS-managed credentials, Redis, IAM roles, CloudWatch and ALB. It is not a complete deployable environment: ECS task definitions/services, WAF, ACM, autoscaling, application secret injection and operational alarms still need implementation and review. Review monthly costs before provisioning.
 
-## Current limitations
-- Real OIDC, issuer/audience validation, token refresh/revocation and multi-user identity mapping are not yet implemented.
-- The Redis worker is a safe queue skeleton; concrete task handlers, retries with backoff and scheduler are not yet implemented.
-- Live Blueticks discovery/tool execution requires the runtime credentials and exact tool-scope allowlists configured by the owner.
-- AWS infrastructure has not been applied. Docker and Terraform CLIs were not available in the current development environment.
-- Configure TLS, WAF, rate limits, backups, restore tests, monitoring, secrets injection and security scans before production use.
+The Terraform directory is a starter, not a completed deployment. It includes chargeable resources. No AWS infrastructure has been provisioned; review costs before any deployment.

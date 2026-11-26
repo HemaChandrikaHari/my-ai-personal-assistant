@@ -3,5 +3,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
+COPY alembic.ini ./alembic.ini
+COPY migrations ./migrations
+# Fail the image build if production migration assets are accidentally omitted.
+RUN test -f /app/alembic.ini && test -f /app/migrations/env.py
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
