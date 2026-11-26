@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     blueticks_mcp_url: str = "https://api.blueticks.co/mcp"
     blueticks_secret_arn: str | None = None
     cors_origins: str = "http://localhost:3000"
+    oidc_issuer: str | None = None
+    oidc_audience: str | None = None
+    oidc_jwks_url: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -23,8 +26,8 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_security_settings(self):
         if self.app_env.lower() in {"production", "prod"}:
-            if len(self.jwt_secret) < 32 or self.jwt_secret == "development-only-change-me":
-                raise ValueError("Production requires a unique JWT_SECRET of at least 32 characters")
+            if not (self.oidc_issuer and self.oidc_audience and self.oidc_jwks_url):
+                raise ValueError("Production requires OIDC_ISSUER, OIDC_AUDIENCE and OIDC_JWKS_URL")
         return self
 
 
