@@ -232,9 +232,9 @@ export default function Home() {
         </article>;
       })}
       <div className="scopes">
-        <button className="secondary" disabled={!connections.find(x => x.provider === "google")?.connected || !!busy}
+        <button className="secondary" disabled={!connections.find(x => x.provider === "google")?.scopes.includes("https://www.googleapis.com/auth/gmail.readonly") || !!busy}
           onClick={() => loadProviderData("/api/v1/google/gmail/messages")}>Load recent Gmail</button>
-        <button className="secondary" disabled={!connections.find(x => x.provider === "google")?.connected || !!busy}
+        <button className="secondary" disabled={!connections.find(x => x.provider === "google")?.scopes.includes("https://www.googleapis.com/auth/calendar.events") || !!busy}
           onClick={() => loadProviderData("/api/v1/google/calendar/events")}>Load Calendar events</button>
         <button className="secondary" disabled={!connections.find(x => x.provider === "todoist")?.connected || !!busy}
           onClick={() => loadProviderData("/api/v1/todoist/tasks")}>Load Todoist tasks</button>
