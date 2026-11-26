@@ -56,6 +56,7 @@ services:
     environment:
       APP_ENV: development
       MCP_TRANSPORT: streamable-http
+      MCP_PORT: "8001"
       ASSISTANT_API_URL: http://backend:8000
       ASSISTANT_USER_ID: ${ASSISTANT_USER_ID:-local-developer}
       ASSISTANT_BACKEND_TOKEN: ${ASSISTANT_BACKEND_TOKEN:-}
