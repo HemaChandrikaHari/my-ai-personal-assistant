@@ -43,7 +43,7 @@ async def recover_processing_jobs(client):
     recovered = 0
     # Migrate jobs left in the legacy retry list before recovering in-flight work.
     while True:
-        raw = await client.rpop("assistant:retry")
+        raw = await client.lpop("assistant:retry")
         if raw is None:
             break
         await client.lpush("assistant:jobs", raw)
@@ -119,7 +119,7 @@ async def run():
                 log.exception("Job %s failed on attempt %s", job_id, attempts)
                 if attempts < MAX_ATTEMPTS:
                     await asyncio.sleep(min(2 ** attempts, 30))
-                    await client.rpush("assistant:jobs", json.dumps(job))
+                    await client.lpush("assistant:jobs", json.dumps(job))
                 else:
                     await client.rpush("assistant:dead", json.dumps(job))
             finally:
