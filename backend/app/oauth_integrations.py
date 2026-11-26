@@ -6,7 +6,7 @@ stored hashed, tied to the initiating user, and expires after ten minutes.
 import hashlib
 import os
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
 import httpx
@@ -40,6 +40,15 @@ GOOGLE_SCOPES = [
 TODOIST_SCOPES = ["data:read_write"]
 
 
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _aware_utc(value: datetime) -> datetime:
+    # SQLite may return naive values for DateTime(timezone=True); PostgreSQL returns aware values.
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
+
 def _cipher() -> Fernet:
     if not TOKEN_ENCRYPTION_KEY:
         raise HTTPException(503, "TOKEN_ENCRYPTION_KEY is not configured")
@@ -70,7 +79,7 @@ async def _new_state(db: AsyncSession, uid: str, provider: str) -> str:
         state_hash=hashlib.sha256(raw.encode()).hexdigest(),
         user_id=uid,
         provider=provider,
-        expires_at=datetime.utcnow() + timedelta(minutes=10),
+        expires_at=_utcnow() + timedelta(minutes=10),
     ))
     await db.commit()
     return raw
@@ -81,7 +90,7 @@ async def _consume_state(db: AsyncSession, raw: str, provider: str) -> str:
         raise HTTPException(400, "Invalid OAuth state")
     digest = hashlib.sha256(raw.encode()).hexdigest()
     state = await db.get(OAuthState, digest)
-    if not state or state.provider != provider or state.expires_at < datetime.utcnow():
+    if not state or state.provider != provider or _aware_utc(state.expires_at) < _utcnow():
         if state:
             await db.delete(state)
             await db.commit()
@@ -173,7 +182,7 @@ async def _save_credential(db: AsyncSession, uid: str, provider: str, token_data
     scopes_value = token_data.get("scope", "")
     scopes = " ".join(scopes_value) if isinstance(scopes_value, list) else str(scopes_value).replace(",", " ")
     expires_in = token_data.get("expires_in")
-    expires_at = datetime.utcnow() + timedelta(seconds=int(expires_in)) if expires_in else None
+    expires_at = _utcnow() + timedelta(seconds=int(expires_in)) if expires_in else None
     if existing:
         existing.access_token_encrypted = _encrypt(token_data["access_token"])
         if token_data.get("refresh_token"):
@@ -181,7 +190,7 @@ async def _save_credential(db: AsyncSession, uid: str, provider: str, token_data
         existing.token_type = token_data.get("token_type", "Bearer")
         existing.scopes = scopes or existing.scopes
         existing.expires_at = expires_at
-        existing.updated_at = datetime.utcnow()
+        existing.updated_at = _utcnow()
     else:
         db.add(OAuthCredential(
             user_id=uid,
@@ -231,7 +240,7 @@ async def _credential(db: AsyncSession, uid: str, provider: str) -> OAuthCredent
 
 async def _access_token(db: AsyncSession, uid: str, provider: str) -> str:
     row = await _credential(db, uid, provider)
-    if row.expires_at and row.expires_at <= datetime.utcnow() + timedelta(seconds=90):
+    if row.expires_at and row.expires_at <= _utcnow() + timedelta(seconds=90):
         refresh_token = _decrypt(row.refresh_token_encrypted)
         if not refresh_token:
             raise HTTPException(401, f"{provider.title()} token expired; reconnect the account")
@@ -259,11 +268,11 @@ async def _access_token(db: AsyncSession, uid: str, provider: str) -> str:
         row.access_token_encrypted = _encrypt(data["access_token"])
         if data.get("refresh_token"):
             row.refresh_token_encrypted = _encrypt(data["refresh_token"])
-        row.expires_at = datetime.utcnow() + timedelta(seconds=int(data.get("expires_in", 3600)))
+        row.expires_at = _utcnow() + timedelta(seconds=int(data.get("expires_in", 3600)))
         if data.get("scope"):
             scopes_value = data["scope"]
             row.scopes = " ".join(scopes_value) if isinstance(scopes_value, list) else str(scopes_value).replace(",", " ")
-        row.updated_at = datetime.utcnow()
+        row.updated_at = _utcnow()
         await db.commit()
     return _decrypt(row.access_token_encrypted) or ""
 
@@ -326,7 +335,7 @@ async def calendar_events(max_results: int = Query(default=20, ge=1, le=100),
     token = await _access_token(db, uid, "google")
     return await _api_get("https://www.googleapis.com/calendar/v3/calendars/primary/events", token,
                           {"maxResults": max_results, "singleEvents": "true",
-                           "orderBy": "startTime", "timeMin": datetime.utcnow().isoformat() + "Z"})
+                           "orderBy": "startTime", "timeMin": _utcnow().isoformat().replace("+00:00", "Z")})
 
 
 @router.post("/google/calendar/events")
