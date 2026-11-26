@@ -25,9 +25,6 @@ class Settings(BaseSettings):
         if self.app_env.lower() in {"production", "prod"}:
             if len(self.jwt_secret) < 32 or self.jwt_secret == "development-only-change-me":
                 raise ValueError("Production requires a unique JWT_SECRET of at least 32 characters")
-            if not self.openai_api_key:
-                # Chat can be disabled, so a missing provider key is not a startup failure.
-                pass
         return self
 
 
