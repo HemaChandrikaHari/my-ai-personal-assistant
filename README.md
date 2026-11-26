@@ -42,12 +42,18 @@ An optional local Streamable HTTP bridge can be started with `docker compose --p
 ## Authentication
 Production API bearer tokens are validated as RS256 JWTs using the configured OIDC issuer, audience and JWKS URL. The stable token subject is the per-user data partition key. Configure your identity provider to issue API access tokens with the expected audience. Local development's X-User-ID bypass is disabled outside APP_ENV=development.
 
+## Live provider smoke test
+After owner-configured OAuth and consent, run the read-only live integration checks in [the setup guide](docs/GOOGLE_TODOIST_SETUP.md) with `python scripts/live_integration_smoke.py`. It verifies Gmail, Calendar, Todoist, API health, and optionally Blueticks discovery without displaying private content or creating/modifying data.
+
+## Worker reliability
+The Redis worker atomically moves jobs to an in-flight list and requeues unacknowledged jobs after a worker process restart. Run exactly one worker replica with this recovery strategy. Production still needs Redis persistence/backup and restore validation; the queue is not a substitute for a durable transactional job broker.
+
 ## AWS
-The Terraform directory is a starter for VPC, ECR, ECS cluster, encrypted RDS with AWS-managed credentials, Redis, IAM roles, CloudWatch and ALB. It is not a complete deployable environment: ECS task definitions/services, WAF, ACM, autoscaling, application secret injection and operational alarms still need implementation and review. Review monthly costs before provisioning.
+The Terraform directory is a foundation for VPC, ECR, ECS cluster, encrypted RDS with AWS-managed credentials, Redis, IAM roles, CloudWatch and ALB. It is not yet a complete deployable environment: ECS task definitions/services, WAF, ACM, autoscaling, application secret injection and operational alarms still need implementation and review. Review monthly costs before provisioning.
 
 ## Current limitations
 - OIDC RS256 issuer/audience/JWKS validation is implemented for externally issued access tokens. Interactive login, account provisioning, provider-specific token revocation and identity-provider administration remain external setup tasks.
-- The Redis worker now handles queued OAuth token refresh and periodic expired-state cleanup with bounded retries and a dead-letter list. User-facing reminder/digest scheduling and crash-proof queue recovery are still not implemented.
+- The Redis worker handles queued OAuth token refresh and periodic expired-state cleanup with bounded retries, a dead-letter list, and recovery of in-flight jobs after process restarts when Redis retains its data. User-facing reminder/digest scheduling and Redis durability/restore validation remain outstanding.
 - Live Blueticks discovery/tool execution and Google/Todoist API access require the owner's runtime credentials, OAuth app registrations, user consent and exact tool-scope allowlists.
 - AWS infrastructure has not been applied. Docker and Terraform CLIs were not available in the current development environment.
 - Configure TLS, WAF, rate limits, backups, restore tests, monitoring, secrets injection and security scans before production use.
