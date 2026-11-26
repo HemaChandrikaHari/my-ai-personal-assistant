@@ -171,7 +171,7 @@ async def _save_credential(db: AsyncSession, uid: str, provider: str, token_data
         OAuthCredential.user_id == uid, OAuthCredential.provider == provider
     ))).scalar_one_or_none()
     scopes_value = token_data.get("scope", "")
-    scopes = " ".join(scopes_value) if isinstance(scopes_value, list) else str(scopes_value)
+    scopes = " ".join(scopes_value) if isinstance(scopes_value, list) else str(scopes_value).replace(",", " ")
     expires_in = token_data.get("expires_in")
     expires_at = datetime.utcnow() + timedelta(seconds=int(expires_in)) if expires_in else None
     if existing:
@@ -262,7 +262,7 @@ async def _access_token(db: AsyncSession, uid: str, provider: str) -> str:
         row.expires_at = datetime.utcnow() + timedelta(seconds=int(data.get("expires_in", 3600)))
         if data.get("scope"):
             scopes_value = data["scope"]
-            row.scopes = " ".join(scopes_value) if isinstance(scopes_value, list) else str(scopes_value)
+            row.scopes = " ".join(scopes_value) if isinstance(scopes_value, list) else str(scopes_value).replace(",", " ")
         row.updated_at = datetime.utcnow()
         await db.commit()
     return _decrypt(row.access_token_encrypted) or ""
