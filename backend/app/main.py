@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from openai import AsyncOpenAI
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
+from app.config import settings
+from app.oauth_integrations import router as oauth_router
 from app.auth import current_user
 from app.db import Base, engine, SessionLocal, get_db, Integration, Grant, Approval, Audit
 
@@ -27,7 +29,8 @@ parsed = urlparse(BLUETICKS_URL)
 if parsed.scheme != "https" or parsed.hostname != "api.blueticks.co":
     raise RuntimeError("Blueticks URL must be https://api.blueticks.co/mcp")
 
-app = FastAPI(title="My AI Personal Assistant", version="0.2.1")
+app = FastAPI(title="My AI Personal Assistant", version="0.3.0")
+app.include_router(oauth_router)
 
 # Explicit origins only: never reflect arbitrary origins or enable credentialed wildcard CORS.
 CORS_ORIGINS = [origin.strip() for origin in os.getenv(
