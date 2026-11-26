@@ -206,6 +206,8 @@ async def _save_credential(db: AsyncSession, uid: str, provider: str, token_data
 
 async def _callback(provider: str, code: str | None, state: str | None, error: str | None, db: AsyncSession):
     if error:
+        if state:
+            await _consume_state(db, state, provider)
         return RedirectResponse(f"{FRONTEND_URL}/?oauth_error={provider}")
     if not code:
         raise HTTPException(400, "OAuth authorization code is missing")
