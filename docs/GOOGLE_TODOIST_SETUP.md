@@ -44,6 +44,27 @@ docker compose up --build
 
 Open `http://localhost:3000`, connect Google and Todoist, and approve each provider's consent screen. The dashboard should then show each connected account and allow loading Gmail message IDs, upcoming calendar events, and Todoist tasks.
 
+## 6. Run read-only live integration checks
+
+After connecting both accounts, install the backend requirements and run the smoke test. It checks API health, OAuth connection state, Gmail message metadata, upcoming Calendar events, and Todoist tasks. It deliberately does not print private content or create/modify/send/delete anything.
+
+Local development:
+
+```bash
+pip install -r backend/requirements.txt
+ASSISTANT_API_URL=http://localhost:8000 ASSISTANT_USER_ID=local-developer python scripts/live_integration_smoke.py
+```
+
+For a deployed environment, use a short-lived API access token from your configured OIDC provider:
+
+```bash
+ASSISTANT_API_URL=https://your-api-domain.example \
+ASSISTANT_BEARER_TOKEN="$YOUR_SHORT_LIVED_ACCESS_TOKEN" \
+python scripts/live_integration_smoke.py --check-blueticks
+```
+
+Do not put tokens in shell history or commit them. The optional Blueticks check only discovers tool names; it does not invoke any WhatsApp tool or send messages. A successful run proves live read access for the connected accounts, not write permissions. Test Calendar event creation and Todoist task creation manually from the dashboard after reviewing the confirmation prompt.
+
 ## 5. Production requirements
 
 - Use HTTPS callback URLs and register the exact production URLs with each provider.
