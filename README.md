@@ -17,7 +17,10 @@ Development startup creates tables for convenience. For production, run Alembic 
 - py -m alembic current
 
 ## Blueticks
-The existing endpoint remains https://api.blueticks.co/mcp. Discovery is explicit and does not grant access. Tool invocation requires a separately approved read, write or send scope. Set BLUETICKS_READ_ONLY_TOOLS and BLUETICKS_SEND_TOOLS to exact tool names after inspecting capabilities. Unknown tools default to write permission. Credentials are read from runtime environment only; use AWS Secrets Manager in deployment. Existing Blueticks credentials are not stored in this repository or copied from ChatGPT's separate connection.
+The existing endpoint remains https://api.blueticks.co/mcp. Discovery is explicit and does not grant access. Tool invocation requires a separately approved read, write or send scope. Set BLUETICKS_READ_ONLY_TOOLS and BLUETICKS_SEND_TOOLS to exact tool names after inspecting capabilities; do not guess tool names. The AI chat tool loop exposes only discovered tools on the read-only allowlist and only after that user has approved the read scope. It never automatically invokes write or send tools. Direct tool invocation still requires the corresponding per-user scope. Unknown tools default to write permission. Credentials are read from runtime environment only; use AWS Secrets Manager in deployment. Existing Blueticks credentials are not stored in this repository or copied from ChatGPT's separate connection.
+
+## Assistant chat
+The chat endpoint supports a bounded OpenAI function-calling loop for explicitly allowlisted, discovered Blueticks read-only tools. Users must first discover capabilities, configure exact tool names in BLUETICKS_READ_ONLY_TOOLS, and approve the read scope. The model cannot automatically invoke write/send tools. Tool results are treated as untrusted input and truncated before being returned to the model.
 
 ## ChatGPT MCP
 The restricted bridge is in mcp-server/server.py. Run it with docker compose --profile mcp up --build mcp-server after supplying a short-lived, user-scoped ASSISTANT_BACKEND_TOKEN. The bridge exposes health, integration listing and assistant chat only. Do not share one backend token among multiple users.
