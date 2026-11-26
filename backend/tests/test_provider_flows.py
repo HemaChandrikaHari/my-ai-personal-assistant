@@ -4,6 +4,8 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
+import pytest_asyncio
+from fastapi import HTTPException
 from cryptography.fernet import Fernet
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -16,7 +18,7 @@ def token_key(monkeypatch):
     monkeypatch.setattr(oauth, "TOKEN_ENCRYPTION_KEY", Fernet.generate_key().decode())
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def db_session():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
@@ -155,7 +157,7 @@ async def test_gmail_message_parser_extracts_headers_and_plain_text(monkeypatch)
 async def test_oauth_state_cannot_be_reused_or_consumed_by_another_provider(db_session):
     state = await oauth._new_state(db_session, "owner-1", "google")
 
-    with pytest.raises(Exception):
+    with pytest.raises(HTTPException):
         await oauth._consume_state(db_session, state, "todoist")
 
     assert await oauth._consume_state(db_session, state, "google") == "owner-1"
